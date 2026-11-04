@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHmac, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -84,6 +84,59 @@ const lookupLimiter = rateLimit({
 });
 
 app.use("/api", apiLimiter);
+
+// ---------- admin auth ----------
+// Single-operator demo auth: ADMIN_PASSWORD env + a signed, expiring session
+// cookie (HttpOnly). The cookie Path is scoped to /api/admin so nothing else
+// triggers it, and the signature is derived from the password itself, so
+// changing the password instantly invalidates all existing sessions.
+const ADMIN_COOKIE = "riders_admin";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "riders-admin"; // demo default
+const ADMIN_SESSION_MS = 12 * 60 * 60 * 1000;
+
+function adminSecret() {
+  return createHmac("sha256", "riders-admin-session-v1").update(ADMIN_PASSWORD).digest();
+}
+function signSession(expMs) {
+  const exp = String(expMs);
+  return `${exp}.${createHmac("sha256", adminSecret()).update(exp).digest("base64url")}`;
+}
+function verifySession(token) {
+  const dot = (token || "").indexOf(".");
+  if (dot < 1) return false;
+  const exp = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  const expected = signSession(Number(exp)).split(".")[1];
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return false;
+  const expMs = Number(exp);
+  return Number.isInteger(expMs) && Date.now() < expMs;
+}
+function parseCookies(req) {
+  const out = {};
+  const raw = req.headers.cookie || "";
+  for (const part of raw.split(";")) {
+    const i = part.indexOf("=");
+    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return out;
+}
+function requireAdmin(req, res, next) {
+  const cookie = parseCookies(req)[ADMIN_COOKIE];
+  const bearer = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  if (verifySession(cookie) || verifySession(bearer)) return next();
+  return res.status(401).json({ error: "Admin access required" });
+}
+
+// Brute-force guard on the login form specifically.
+const loginLimiter = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: "Too many login attempts — try again in a few minutes." },
+});
 
 const PORT = process.env.PORT || 4000;
 
@@ -450,6 +503,119 @@ app.get("/api/health", async (_req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, db: "unreachable" });
+  }
+});
+
+// ---------- admin dashboard endpoints ----------
+app.post("/api/admin/login", loginLimiter, (req, res) => {
+  const pw = String(req.body?.password || "");
+  const a = Buffer.from(pw);
+  const b = Buffer.from(ADMIN_PASSWORD);
+  const ok = a.length === b.length && timingSafeEqual(a, b);
+  if (!ok) return res.status(401).json({ error: "Wrong password" });
+  // Secure flag whenever the connection is TLS (Render/Railway behind proxy)
+  const secure = req.secure || req.headers["x-forwarded-proto"] === "https";
+  res.cookie(ADMIN_COOKIE, signSession(Date.now() + ADMIN_SESSION_MS), {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/api/admin",
+    secure,
+    maxAge: ADMIN_SESSION_MS,
+  });
+  res.json({ admin: true });
+});
+
+app.post("/api/admin/logout", (req, res) => {
+  res.clearCookie(ADMIN_COOKIE, { path: "/api/admin" });
+  res.json({ admin: false });
+});
+
+app.get("/api/admin/me", (req, res) => {
+  const cookie = parseCookies(req)[ADMIN_COOKIE];
+  if (!verifySession(cookie)) return res.status(401).json({ error: "Admin access required" });
+  res.json({ admin: true });
+});
+
+// Aggregate stats for the dashboard cards
+app.get("/api/admin/stats", requireAdmin, async (_req, res) => {
+  try {
+    const { rows } = await q(`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'confirmed')::int                                          AS confirmed,
+        COUNT(*) FILTER (WHERE status = 'cancelled')::int                                          AS cancelled,
+        COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE)::int                                    AS booked_today,
+        COALESCE(SUM(total_amount) FILTER (WHERE status = 'confirmed'), 0)::float                  AS revenue,
+        COALESCE(SUM(cancellation_fee) FILTER (WHERE status = 'cancelled'), 0)::float              AS cancel_fees,
+        COALESCE(SUM(refund_amount) FILTER (WHERE status = 'cancelled'), 0)::float                 AS refunds,
+        (SELECT COUNT(*)::int FROM booking_seats
+          WHERE booking_id IN (SELECT id FROM bookings WHERE status = 'confirmed'))                AS seats_sold
+      FROM bookings
+    `);
+    const topRoutes = await q(`
+      SELECT cf.name AS from_city, ct.name AS to_city, COUNT(bs.id)::int AS seats,
+             COALESCE(SUM(bk.total_amount), 0)::float AS revenue
+      FROM bookings bk
+      JOIN booking_seats bs ON bs.booking_id = bk.id
+      JOIN trips t  ON t.id = bk.trip_id
+      JOIN cities cf ON cf.id = t.from_city_id
+      JOIN cities ct ON ct.id = t.to_city_id
+      WHERE bk.status = 'confirmed'
+      GROUP BY cf.name, ct.name
+      ORDER BY seats DESC
+      LIMIT 5
+    `);
+    res.json({ ...rows[0], top_routes: topRoutes.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Stats failed" });
+  }
+});
+
+// Recent/filtered bookings table
+app.get("/api/admin/bookings", requireAdmin, async (req, res) => {
+  const query = String(req.query.q || "").trim().slice(0, 60);
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+  try {
+    const { rows } = await query
+      ? await q(
+          `SELECT bk.pnr, bk.travel_date, bk.status, bk.total_amount,
+                  bk.cancellation_fee, bk.refund_amount, bk.contact_name, bk.email,
+                  bk.created_at, t.depart_time, b.operator,
+                  cf.name AS from_city, ct.name AS to_city,
+                  COALESCE(STRING_AGG(bs.seat, ' ' ORDER BY bs.seat), '') AS seats
+           FROM bookings bk
+           JOIN trips t ON t.id = bk.trip_id
+           JOIN buses b ON b.id = t.bus_id
+           JOIN cities cf ON cf.id = t.from_city_id
+           JOIN cities ct ON ct.id = t.to_city_id
+           LEFT JOIN booking_seats bs ON bs.booking_id = bk.id
+           WHERE bk.email ILIKE $1 OR bk.pnr ILIKE $1 OR bk.contact_name ILIKE $1 OR bk.phone ILIKE $1
+           GROUP BY bk.id, t.id, b.operator, cf.name, ct.name
+           ORDER BY bk.created_at DESC
+           LIMIT $2`,
+          [`%${query}%`, limit]
+        )
+      : await q(
+          `SELECT bk.pnr, bk.travel_date, bk.status, bk.total_amount,
+                  bk.cancellation_fee, bk.refund_amount, bk.contact_name, bk.email,
+                  bk.created_at, t.depart_time, b.operator,
+                  cf.name AS from_city, ct.name AS to_city,
+                  COALESCE(STRING_AGG(bs.seat, ' ' ORDER BY bs.seat), '') AS seats
+           FROM bookings bk
+           JOIN trips t ON t.id = bk.trip_id
+           JOIN buses b ON b.id = t.bus_id
+           JOIN cities cf ON cf.id = t.from_city_id
+           JOIN cities ct ON ct.id = t.to_city_id
+           LEFT JOIN booking_seats bs ON bs.booking_id = bk.id
+           GROUP BY bk.id, t.id, b.operator, cf.name, ct.name
+           ORDER BY bk.created_at DESC
+           LIMIT $1`,
+          [limit]
+        );
+    res.json(rows.map((r) => ({ ...r, travel_date: typeof r.travel_date === "string" ? r.travel_date : r.travel_date.toISOString().slice(0, 10) })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Listing failed" });
   }
 });
 

@@ -20,6 +20,12 @@ export const api = {
   cancelQuote: (pnr) => request(`/bookings/${pnr}/cancel-quote`),
   cancel: (pnr) => request(`/bookings/${pnr}/cancel`, { method: "POST" }),
   myBookings: (email) => request(`/my-bookings?email=${encodeURIComponent(email)}`),
+  adminLogin: (password) =>
+    request("/admin/login", { method: "POST", body: JSON.stringify({ password }) }),
+  adminLogout: () => request("/admin/logout", { method: "POST" }),
+  adminMe: () => request("/admin/me"),
+  adminStats: () => request("/admin/stats"),
+  adminBookings: (q = "") => request(`/admin/bookings${q ? `?q=${encodeURIComponent(q)}` : ""}`),
 };
 
 export const money = (n) =>

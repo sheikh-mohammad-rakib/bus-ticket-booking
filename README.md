@@ -107,6 +107,24 @@ Checkout is simulated (no real charge):
 | POST   | `/bookings/:pnr/cancel`   | charges 10% (min ৳50), seats freed |
 | GET    | `/my-bookings?email`      | booking history                    |
 
+Operator console (auth required — session cookie or bearer token from
+`POST /admin/login`, rate-limited; password from `ADMIN_PASSWORD`):
+
+| Method | Path                      | Notes                              |
+| ------ | ------------------------- | ---------------------------------- |
+| POST   | `/admin/login` / `/admin/logout` / `/admin/me` | session manage |
+| GET    | `/admin/stats`            | revenue, seats sold, cancellations, top routes |
+| GET    | `/admin/bookings?q&limit` | searchable bookings ledger         |
+
+## Operator console
+
+`/admin` in the app is a lightweight dashboard for the bus company: log in with
+the admin password (`ADMIN_PASSWORD`, demo default `riders-admin`) to see
+revenue and seats sold, cancellation stats with fees/refunds, best-selling
+routes, and a searchable ledger of every booking (PNR, passenger, seats,
+amounts, refund status). Sessions are HMAC-signed HttpOnly cookies scoped to
+`/api/admin`, expiring after 12 hours — changing the password invalidates them.
+
 ## Design notes
 
 - Double-booking is prevented by a `SELECT … FOR UPDATE` row lock on the trip

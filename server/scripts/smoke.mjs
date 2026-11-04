@@ -182,6 +182,44 @@ async function main() {
   // seat is free again
   const map2 = await api("GET", `/api/trips/${trip.id}/seatmap?date=${date}`);
   check("seat back on sale after cancel", !(map2.body?.sold || []).includes(seat));
+
+  // --- admin console ---
+  const wrong = await api("POST", "/api/admin/login", { password: "definitely-wrong" });
+  check("admin rejects wrong password (401)", wrong.status === 401);
+  const noAuth = await api("GET", "/api/admin/stats");
+  check("admin endpoints locked without session (401)", noAuth.status === 401);
+
+  const res = await fetch(`${BASE}/api/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: process.env.ADMIN_PASSWORD || "riders-admin" }),
+  });
+  if (res.status !== 200) throw new Error(`admin login failed (HTTP ${res.status})`);
+  const cookie = ((res.headers.getSetCookie?.() || [])[0] || "").split(";")[0];
+  check("admin login issues session cookie", /riders_admin=/.test(cookie));
+
+  const authedFetch = async (method, path) => {
+    const resp = await fetch(BASE + path, { method, headers: { Cookie: cookie } });
+    return { status: resp.status, body: await resp.json().catch(() => null) };
+  };
+  const me = await authedFetch("GET", "/api/admin/me");
+  check("session cookie authenticates", me.status === 200 && me.body?.admin === true);
+  const st = await authedFetch("GET", "/api/admin/stats");
+  check(
+    "admin stats",
+    st.status === 200 && typeof st.body?.revenue === "number" && Array.isArray(st.body?.top_routes)
+  );
+  const list = await authedFetch("GET", "/api/admin/bookings?limit=10");
+  check(
+    "admin bookings list",
+    list.status === 200 && Array.isArray(list.body) && list.body.some((b) => b.pnr === pnr),
+    `${list.body?.length ?? 0} rows incl. PNR ${pnr}`
+  );
+  const searched = await authedFetch("GET", "/api/admin/bookings?q=" + pnr);
+  check(
+    "admin search by PNR",
+    searched.status === 200 && Array.isArray(searched.body) && searched.body.length >= 1
+  );
 }
 
 main().catch((err) => {

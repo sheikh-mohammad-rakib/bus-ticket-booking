@@ -8,6 +8,7 @@ import { SeatMap } from "./pages/SeatMap.jsx";
 import { Passengers } from "./pages/Passengers.jsx";
 import { Ticket } from "./pages/Ticket.jsx";
 import { MyTrips } from "./pages/MyTrips.jsx";
+import { Admin } from "./pages/Admin.jsx";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
@@ -20,6 +21,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
           <Route path="/book" element={<Passengers />} />
           <Route path="/ticket/:pnr" element={<Ticket />} />
           <Route path="/my-trips" element={<MyTrips />} />
+          <Route path="/admin" element={<Admin />} />
           <Route path="*" element={<p className="muted">Page not found.</p>} />
         </Routes>
       </main>

@@ -10,6 +10,7 @@ export function Header() {
       <nav className="site-nav">
         <Link to="/" className="nav-link">Search buses</Link>
         <Link to="/my-trips" className="nav-link">My trips</Link>
+        <Link to="/admin" className="nav-link nav-link--quiet">Admin</Link>
       </nav>
     </header>
   );
