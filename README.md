@@ -119,3 +119,21 @@ Checkout is simulated (no real charge):
   Rajshahi, Barishal, Cox's Bazar, Rangpur, Cumilla, Mymensingh), familiar
   operators (Green Line, Hanif, Shohag, Ena, Shyamoli, Royal Coach), fares in
   ৳50 steps, and +880 phone formatting.
+
+## Security notes
+
+- **Headers** via helmet: strict CSP (self-hosted assets + Google Fonts only),
+  `X-Frame-Options` / `frame-ancestors 'none'` (no clickjacking), `nosniff`,
+  `Strict-Transport-Security`, `Referrer-Policy`.
+- **Rate limiting** (per IP; key correctness on scale platforms thanks to
+  `trust proxy`): 300/min API-wide, 15 per 10 min on `POST /bookings`, 60/min
+  on PNR/email lookups and cancellations — `429` + `RateLimit` headers.
+- **CORS allowlist** (`CORS_ORIGIN` env, defaults to the Vite dev origins);
+  requests from unknown origins get no access headers.
+- **Input hygiene**: 16 kB JSON body cap, length-limited contact fields,
+  strict regex validation (seats, dates, email, phone, card Luhn/expiry).
+- **Card data**: the mock gateway validates card numbers but stores only the
+  paid amount — card numbers, CVVs and expiry are never persisted or logged.
+- **Known limitation**: booking lookup authenticates with the PNR (a shared
+  secret). A real deployment should add user accounts before exposing
+  `/my-bookings` by email.

@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -7,8 +9,81 @@ import { fileURLToPath } from "node:url";
 import { pool, q, ensureSchema, seedIfEmpty } from "./db.js";
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// Behind Render/Railway/ingress proxies so rate limits key on the real client IP
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
+
+// ---------- security headers ----------
+// CSP is tuned for this app: Vite-built self-hosted assets + Google Fonts.
+// Everything else stays at helmet's strict defaults (no frames, no sniffing,
+// HSTS on http requests that reach us over TLS platforms, no object loading).
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        "script-src": ["'self'"],
+        "style-src": ["'self'", "https://fonts.googleapis.com"],
+        "font-src": ["'self'", "https://fonts.gstatic.com"],
+        "img-src": ["'self'", "data:"],
+        "connect-src": ["'self'"],
+        "form-action": ["'self'"],
+        "frame-ancestors": ["'none'"],
+      },
+    },
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  })
+);
+
+// ---------- CORS allowlist ----------
+// Dev: the Vite origin. Deployed single-service: same-origin requests carry no
+// Origin header and pass through. Extra origins can be added via CORS_ORIGIN.
+const CORS_ORIGINS = (process.env.CORS_ORIGIN || "http://localhost:5173,http://127.0.0.1:5173")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin || CORS_ORIGINS.includes(origin)) return cb(null, true);
+      return cb(null, false); // deny quietly, don't reflect
+    },
+  })
+);
+
+// Hard cap on request bodies (bookings are a few hundred bytes of JSON)
+app.use(express.json({ limit: "16kb" }));
+
+// ---------- rate limiting ----------
+// Flood control for the whole API.
+const apiLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 300,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: "Too many requests — slow down." },
+});
+
+// Seat-buying is the expensive, abusable endpoint: cap attempts per IP.
+const purchaseLimiter = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 15,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: "Too many booking attempts — try again in a few minutes." },
+});
+
+// PNR/email lookups are the guessable surface — heavier throttling.
+const lookupLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 60,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: "Too many lookups — slow down." },
+});
+
+app.use("/api", apiLimiter);
 
 const PORT = process.env.PORT || 4000;
 
@@ -154,7 +229,7 @@ app.get("/api/trips/:id/seatmap", async (req, res) => {
 });
 
 // Create booking
-app.post("/api/bookings", async (req, res) => {
+app.post("/api/bookings", purchaseLimiter, async (req, res) => {
   const { trip_id, date, seats, contact_name, email, phone, payment } = req.body || {};
 
   const travelDate = fmtDate(date);
@@ -167,10 +242,11 @@ app.post("/api/bookings", async (req, res) => {
     return res.status(400).json({ error: "Duplicate seats" });
   if (!contact_name || typeof contact_name !== "string" || contact_name.trim().length < 2)
     return res.status(400).json({ error: "contact_name is required" });
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email || ""))
+  if (typeof email !== "string" || email.length > 120 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
     return res.status(400).json({ error: "A valid email is required" });
-  if (!/^\+?[\d\s-]{7,15}$/.test(phone || ""))
+  if (typeof phone !== "string" || phone.length > 20 || !/^\+?[\d\s-]{7,15}$/.test(phone))
     return res.status(400).json({ error: "A valid phone number is required" });
+  const cleanName = contact_name.trim().slice(0, 80);
 
   if (!payment || !/^\d{12,19}$/.test(String(payment.card_number || "")))
     return res.status(400).json({ error: "card_number must be 12-19 digits" });
@@ -188,7 +264,7 @@ app.post("/api/bookings", async (req, res) => {
       tripId: Number(trip_id),
       travelDate,
       seats,
-      contactName: contact_name.trim(),
+      contactName: cleanName,
       email: email.trim().toLowerCase(),
       phone: phone.trim(),
     });
@@ -295,7 +371,7 @@ function cancellationFee(total) {
 }
 
 // What a cancellation would cost, before confirming
-app.get("/api/bookings/:pnr/cancel-quote", async (req, res) => {
+app.get("/api/bookings/:pnr/cancel-quote", lookupLimiter, async (req, res) => {
   const pnr = String(req.params.pnr).toUpperCase();
   try {
     const { rows } = await q(
@@ -319,7 +395,7 @@ app.get("/api/bookings/:pnr/cancel-quote", async (req, res) => {
 });
 
 // Ticket lookup by PNR
-app.get("/api/bookings/:pnr", async (req, res) => {
+app.get("/api/bookings/:pnr", lookupLimiter, async (req, res) => {
   try {
     const ticket = await ticketPayload(String(req.params.pnr).toUpperCase());
     if (!ticket) return res.status(404).json({ error: "Booking not found" });
@@ -331,7 +407,7 @@ app.get("/api/bookings/:pnr", async (req, res) => {
 });
 
 // Cancel a booking
-app.post("/api/bookings/:pnr/cancel", async (req, res) => {
+app.post("/api/bookings/:pnr/cancel", lookupLimiter, async (req, res) => {
   const pnr = String(req.params.pnr).toUpperCase();
   try {
     const { rows } = await q("SELECT id, status, total_amount FROM bookings WHERE pnr = $1", [pnr]);
@@ -353,8 +429,8 @@ app.post("/api/bookings/:pnr/cancel", async (req, res) => {
 });
 
 // List bookings by email
-app.get("/api/my-bookings", async (req, res) => {
-  const email = String(req.query.email || "").trim().toLowerCase();
+app.get("/api/my-bookings", lookupLimiter, async (req, res) => {
+  const email = String(req.query.email || "").trim().toLowerCase().slice(0, 120);
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
     return res.status(400).json({ error: "A valid email is required" });
   try {
