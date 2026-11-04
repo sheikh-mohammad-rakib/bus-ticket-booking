@@ -1,0 +1,15 @@
+{
+  "name": "bus-ticket-booking",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Full-stack bus ticket booking app: React frontend, Express API, SQLite database",
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+    "seed": "npm --prefix server run seed",
+    "build": "npm --prefix client run build",
+    "start": "node server/src/index.js"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
