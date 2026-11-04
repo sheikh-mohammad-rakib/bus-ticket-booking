@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  client:
+    name: Build client
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  server:
+    name: API smoke test (Postgres)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: riders
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/riders
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - name: Start API (creates schema + seeds Bangladesh data on first boot)
+        run: node src/index.js > api.log 2>&1 &
+      - run: npm test
+      - name: Show API log on failure
+        if: failure()
+        run: cat api.log

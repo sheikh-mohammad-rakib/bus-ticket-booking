@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "seed": "node src/seed.js"
+    "seed": "node src/seed.js",
+    "test": "node scripts/smoke.mjs",
+    "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "cors": "^2.8.5",
