@@ -1,5 +1,15 @@
 node_modules
-server/data
+**/node_modules
 client/dist
-*.md
+.warm-npm-cache/
+compose-build*.log
 .git
+.github
+*.log
+.env
+.env.*
+.env.example
+docker-compose.yml
+Dockerfile
+README.md
+pgdata

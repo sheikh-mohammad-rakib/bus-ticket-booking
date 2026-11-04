@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# npm cache seed for offline Docker builds (host-copied, machine-specific)
+.warm-npm-cache/
+
 # Build output
 client/dist/
 
