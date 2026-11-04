@@ -7,14 +7,15 @@ Express API, **PostgreSQL** (via `pg`). Routes, operators and fares mirror
 typical intercity coach travel in Bangladesh, priced in ৳ (BDT).
 
 Every push to `main` (and every PR) runs CI in GitHub Actions:
-it builds the client, boots the API against a real
+it builds the client, runs the unit tests, boots the API against a real
 Postgres 17 service container, seeds the Bangladesh data, and runs an
 end-to-end smoke suite (`server/scripts/smoke.mjs` — booking, payment
-rejection, cancellation charges). Run the same suite locally with:
+rejection, cancellation charges). Run the same suites locally with:
 
 ```powershell
 cd server
-npm test    # expects the API running on :4000
+npm run unit   # pure-logic tests (fee math, Luhn, session codec) — no server needed
+npm test       # smoke suite; expects the API running on :4000
 ```
 
 ## Run it (dev)
