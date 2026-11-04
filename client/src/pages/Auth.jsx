@@ -44,26 +44,29 @@ export function Auth() {
         </button>
       </div>
 
-      <form className="modal" onSubmit={submit} style={{ maxWidth: 440 }}>
+      <form className="modal auth-form" onSubmit={submit} style={{ maxWidth: 440 }}>
         {mode === "register" && (
-          <>
-            <label className="field-label" htmlFor="f-name">Full name</label>
-            <input id="f-name" className="field-input" value={form.name} onChange={set("name")} autoComplete="name" required minLength={2} maxLength={80} />
-          </>
+          <label className="field">
+            <span className="field-label">Full name</span>
+            <input id="f-name" value={form.name} onChange={set("name")} autoComplete="name" required minLength={2} maxLength={80} />
+          </label>
         )}
-        <label className="field-label" htmlFor="f-email">Email</label>
-        <input id="f-email" className="field-input" type="email" value={form.email} onChange={set("email")} autoComplete="email" required placeholder="you@example.com" />
-        <label className="field-label" htmlFor="f-password">Password</label>
-        <input
-          id="f-password"
-          className="field-input"
-          type="password"
-          value={form.password}
-          onChange={set("password")}
-          autoComplete={mode === "login" ? "current-password" : "new-password"}
-          required
-          minLength={mode === "register" ? 8 : undefined}
-        />
+        <label className="field">
+          <span className="field-label">Email</span>
+          <input id="f-email" type="email" value={form.email} onChange={set("email")} autoComplete="email" required placeholder="you@example.com" />
+        </label>
+        <label className="field">
+          <span className="field-label">Password</span>
+          <input
+            id="f-password"
+            type="password"
+            value={form.password}
+            onChange={set("password")}
+            autoComplete={mode === "login" ? "current-password" : "new-password"}
+            required
+            minLength={mode === "register" ? 8 : undefined}
+          />
+        </label>
         {mode === "register" && (
           <p className="hint-line">At least 8 characters. Stored salted and bcrypt-hashed.</p>
         )}

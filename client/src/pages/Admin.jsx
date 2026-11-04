@@ -71,17 +71,17 @@ export function Admin() {
           <h1>Operator console</h1>
           <p className="step-sub muted">Operator access only. Sign in with the admin password.</p>
         </header>
-        <form className="modal" onSubmit={login} style={{ maxWidth: 420 }}>
-          <label className="field-label" htmlFor="admin-pw">Admin password</label>
-          <input
-            id="admin-pw"
-            className="field-input"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            required
-          />
+        <form className="modal auth-form" onSubmit={login} style={{ maxWidth: 420 }}>
+          <label className="field">
+            <span className="field-label">Admin password</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </label>
           {error && <p className="error-banner" role="alert">{error}</p>}
           <button className="btn btn-amber" type="submit" disabled={busy || !password}>
             {busy ? "Signing in…" : "Sign in"}
