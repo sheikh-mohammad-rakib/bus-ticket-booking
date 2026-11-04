@@ -82,6 +82,19 @@ export async function ensureSchema() {
     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancellation_fee NUMERIC(10,2);
     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS refund_amount NUMERIC(10,2);
   `);
+
+  // User accounts + booking ownership (idempotent)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id            SERIAL PRIMARY KEY,
+      name          TEXT NOT NULL,
+      email         TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role          TEXT NOT NULL DEFAULT 'passenger' CHECK (role IN ('passenger','admin')),
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id);
+  `);
 }
 
 export async function seedIfEmpty() {

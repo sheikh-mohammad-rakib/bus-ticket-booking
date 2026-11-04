@@ -220,6 +220,48 @@ async function main() {
     "admin search by PNR",
     searched.status === 200 && Array.isArray(searched.body) && searched.body.length >= 1
   );
+
+  // --- user accounts + authorization ---
+  const uname = `Smoke User ${Date.now() % 100000}`;
+  const uemail = `smoke.${Date.now() % 100000}@example.com`;
+  const pw = "correct-horse-9";
+  const reg = await api("POST", "/api/auth/register", { name: uname, email: uemail, password: pw });
+  check("register creates account", reg.status === 201 && reg.body?.user?.role === "passenger");
+  const regDup = await api("POST", "/api/auth/register", { name: uname, email: uemail, password: pw });
+  check("duplicate email rejected (409)", regDup.status === 409);
+  const badLogin = await api("POST", "/api/auth/login", { email: uemail, password: "wrong-pass" });
+  check("login rejects wrong password (401)", badLogin.status === 401);
+  const loginRes = await fetch(`${BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: uemail, password: pw }),
+  });
+  const userCookie = ((loginRes.headers.getSetCookie?.() || [])[0] || "").split(";")[0];
+  check("login issues session cookie", /riders_session=/.test(userCookie));
+  const userFetch = async (method, path, body) =>
+    fetch(BASE + path, { method, headers: { Cookie: userCookie, ...(body ? { "Content-Type": "application/json" } : {}), }, body: body ? JSON.stringify(body) : undefined })
+      .then(async (resp) => ({ status: resp.status, body: await resp.json().catch(() => null) }));
+  const meR = await userFetch("GET", "/api/auth/me");
+  check("session authenticates as user", meR.status === 200 && meR.body?.user?.email === uemail);
+
+  // A booking made by this user is linked and visible; a passenger role can't
+  // reach the admin console (authorization check).
+  const ubk = await userFetch("POST", "/api/bookings", {
+    trip_id: trip.id, date, seats: [seat], contact_name: uname,
+    email: uemail, phone: "+8801700000055",
+    payment: { card_number: "4111111111111111", expiry: "09/29", cvv: "512" },
+  });
+  check("signed-in booking created", ubk.status >= 200 && ubk.status < 300 && !!ubk.body?.pnr);
+  const mineUser = await userFetch("GET", "/api/my-bookings");
+  check(
+    "user ledger shows own booking (no email param)",
+    mineUser.status === 200 && Array.isArray(mineUser.body) && mineUser.body.some((b) => b.pnr === ubk.body?.pnr)
+  );
+  const notAdmin = await userFetch("GET", "/api/admin/stats");
+  check("passenger role blocked from console (401)", notAdmin.status === 401);
+  const lo = await fetch(`${BASE}/api/auth/logout`, { method: "POST", headers: { Cookie: userCookie } });
+  const cleared = ((lo.headers.getSetCookie?.() || [])[0] || "").includes("riders_session=");
+  check("logout clears session cookie", lo.status === 200 && cleared);
 }
 
 main().catch((err) => {

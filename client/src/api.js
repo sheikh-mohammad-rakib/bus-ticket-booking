@@ -19,7 +19,11 @@ export const api = {
   ticket: (pnr) => request(`/bookings/${pnr}`),
   cancelQuote: (pnr) => request(`/bookings/${pnr}/cancel-quote`),
   cancel: (pnr) => request(`/bookings/${pnr}/cancel`, { method: "POST" }),
-  myBookings: (email) => request(`/my-bookings?email=${encodeURIComponent(email)}`),
+  myBookings: (email) => request(`/my-bookings${email ? `?email=${encodeURIComponent(email)}` : ""}`),
+  register: (payload) => request("/auth/register", { method: "POST", body: JSON.stringify(payload) }),
+  login: (payload) => request("/auth/login", { method: "POST", body: JSON.stringify(payload) }),
+  me: () => request("/auth/me"),
+  logout: () => request("/auth/logout", { method: "POST" }),
   adminLogin: (password) =>
     request("/admin/login", { method: "POST", body: JSON.stringify({ password }) }),
   adminLogout: () => request("/admin/logout", { method: "POST" }),

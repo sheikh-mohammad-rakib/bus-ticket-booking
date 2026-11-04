@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, money, fmtDate } from "../api.js";
+import { useAuth } from "../auth.jsx";
 
 function StatCard({ label, value, sub, tone = "" }) {
   return (
@@ -12,6 +13,7 @@ function StatCard({ label, value, sub, tone = "" }) {
 }
 
 export function Admin() {
+  const { user, signOut } = useAuth();
   const [checked, setChecked] = useState(false);
   const [authed, setAuthed] = useState(false);
   const [password, setPassword] = useState("");
@@ -22,7 +24,9 @@ export function Admin() {
   const [filter, setFilter] = useState("");
   const [appliedFilter, setAppliedFilter] = useState("");
 
-  // Restore an existing session on mount
+  const isAdmin = authed || user?.role === "admin";
+
+  // Restore an existing session on mount (password cookie or admin-role account)
   useEffect(() => {
     api.adminMe()
       .then(() => setAuthed(true))
@@ -32,10 +36,10 @@ export function Admin() {
 
   // Pull data once signed in
   useEffect(() => {
-    if (!authed) return;
+    if (!isAdmin) return;
     api.adminStats().then(setStats).catch((err) => setError(err.message));
     api.adminBookings(appliedFilter).then(setRows).catch((err) => setError(err.message));
-  }, [authed, appliedFilter]);
+  }, [isAdmin, appliedFilter]);
 
   function login(e) {
     e.preventDefault();
@@ -51,12 +55,16 @@ export function Admin() {
   }
 
   function logout() {
-    api.adminLogout().catch(() => {}).finally(() => setAuthed(false));
+    if (user?.role === "admin") {
+      signOut().catch(() => {}).finally(() => setAuthed(false));
+    } else {
+      api.adminLogout().catch(() => {}).finally(() => setAuthed(false));
+    }
   }
 
   if (!checked) return null;
 
-  if (!authed) {
+  if (!isAdmin) {
     return (
       <div className="step-shell">
         <header className="step-head">

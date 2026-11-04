@@ -1,6 +1,10 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { useAuth } from "../auth.jsx";
 
 export function Header() {
+  const { user, signOut } = useAuth();
+  const { pathname } = useLocation();
+
   return (
     <header className="site-head no-print">
       <Link to="/" className="wordmark">
@@ -11,6 +15,17 @@ export function Header() {
         <Link to="/" className="nav-link">Search buses</Link>
         <Link to="/my-trips" className="nav-link">My trips</Link>
         <Link to="/admin" className="nav-link nav-link--quiet">Admin</Link>
+        {user ? (
+          <span className="user-chip">
+            <span className="user-name" title={user.email}>
+              {user.name.split(" ")[0]}
+              {user.role === "admin" && <span className="role-badge">admin</span>}
+            </span>
+            <button className="link-btn" onClick={signOut}>Sign out</button>
+          </span>
+        ) : pathname !== "/login" ? (
+          <Link to="/login" state={{ from: pathname }} className="btn btn-amber btn--small">Sign in</Link>
+        ) : null}
       </nav>
     </header>
   );

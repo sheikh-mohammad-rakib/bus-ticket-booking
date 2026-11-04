@@ -107,8 +107,8 @@ Checkout is simulated (no real charge):
 | POST   | `/bookings/:pnr/cancel`   | charges 10% (min ৳50), seats freed |
 | GET    | `/my-bookings?email`      | booking history                    |
 
-Operator console (auth required — session cookie or bearer token from
-`POST /admin/login`, rate-limited; password from `ADMIN_PASSWORD`):
+Operator console (auth required — admin password session, or a signed-in
+account with role `admin`; rate-limited on login):
 
 | Method | Path                      | Notes                              |
 | ------ | ------------------------- | ---------------------------------- |
@@ -116,14 +116,32 @@ Operator console (auth required — session cookie or bearer token from
 | GET    | `/admin/stats`            | revenue, seats sold, cancellations, top routes |
 | GET    | `/admin/bookings?q&limit` | searchable bookings ledger         |
 
+## Accounts & authorization
+
+- **Register / sign in** at `/login`: bcrypt-hashed passwords (salted, cost 10),
+  duplicate emails rejected, sessions are HMAC-signed HttpOnly cookies
+  (`Path=/api`, 30 days) — no session table needed and no token in JS.
+  Passengers log in via email+password; wrong logins give one generic error
+  (no account enumeration).
+- **Ownership**: bookings store `user_id`. Signed-in users always receive their
+  own ledger on `/my-bookings` — the email query string is ignored for them —
+  so one account can't probe another's bookings. Guests keep the legacy
+  email-based lookup (fine for a demo; a production deployment should retire it).
+- **Roles**: accounts are `passenger` (default) or `admin`. Admin accounts
+  bypass the operator password gate; passengers get 401 on console endpoints.
+  Promote an account from the CLI:
+  `node scripts/make-admin.mjs user@example.com` (append `demote` to reverse).
+- **Operator password**: still works for `/admin` (`ADMIN_PASSWORD`, demo
+  default `riders-admin` — set a real one anywhere reachable).
+
 ## Operator console
 
-`/admin` in the app is a lightweight dashboard for the bus company: log in with
-the admin password (`ADMIN_PASSWORD`, demo default `riders-admin`) to see
-revenue and seats sold, cancellation stats with fees/refunds, best-selling
+`/admin` in the app is a lightweight dashboard for the bus company: sign in to
+see revenue and seats sold, cancellation stats with fees/refunds, best-selling
 routes, and a searchable ledger of every booking (PNR, passenger, seats,
-amounts, refund status). Sessions are HMAC-signed HttpOnly cookies scoped to
-`/api/admin`, expiring after 12 hours — changing the password invalidates them.
+amounts, refund status). Operator sessions are HMAC-signed HttpOnly cookies
+scoped to `/api/admin`, expiring after 12 hours; user sessions with the
+`admin` role enter directly.
 
 ## Design notes
 
@@ -152,6 +170,9 @@ amounts, refund status). Sessions are HMAC-signed HttpOnly cookies scoped to
   strict regex validation (seats, dates, email, phone, card Luhn/expiry).
 - **Card data**: the mock gateway validates card numbers but stores only the
   paid amount — card numbers, CVVs and expiry are never persisted or logged.
-- **Known limitation**: booking lookup authenticates with the PNR (a shared
-  secret). A real deployment should add user accounts before exposing
-  `/my-bookings` by email.
+- **Accounts**: bcrypt-hashed passwords (cost 10) with HMAC-signed HttpOnly
+  session cookies; bookings are ownership-tagged (`user_id`); the `admin` role
+  gates the operator console; login forms are rate-limited (10/10 min).
+- **Known limitation**: guest lookup by raw email still exists (as in real
+  Bangladeshi bus apps); signed-in users are never affected by it — their
+  ledger is strictly their own. A production deployment would retire it.

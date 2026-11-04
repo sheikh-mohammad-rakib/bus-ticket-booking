@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import bcrypt from "bcryptjs";
 import { randomBytes, createHmac, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -123,6 +124,8 @@ function parseCookies(req) {
   return out;
 }
 function requireAdmin(req, res, next) {
+  // An account with role=admin satisfies the console gate too
+  if (req.user?.role === "admin") return next();
   const cookie = parseCookies(req)[ADMIN_COOKIE];
   const bearer = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   if (verifySession(cookie) || verifySession(bearer)) return next();
@@ -137,6 +140,63 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many login attempts — try again in a few minutes." },
 });
+
+// ---------- user accounts ----------
+// Stateless signed session cookies: the token carries {userId, expiry} and an
+// HMAC bound to the server secret, so no session table is needed. Set
+// AUTH_SECRET in production; without it the secret derives from ADMIN_PASSWORD
+// (changing either password logs everyone out — acceptable, and honest).
+const USER_COOKIE = "riders_session";
+const USER_SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+const userSecret = () =>
+  process.env.AUTH_SECRET
+    ? createHmac("sha256", process.env.AUTH_SECRET).update("riders-user-session-v1").digest()
+    : createHmac("sha256", ADMIN_PASSWORD).update("riders-user-session-v1").digest();
+
+function signUserSession(userId, expMs) {
+  const payload = `${userId}.${expMs}`;
+  return `${payload}.${createHmac("sha256", userSecret()).update(payload).digest("base64url")}`;
+}
+function verifyUserSession(token) {
+  const parts = (token || "").split(".");
+  if (parts.length !== 3) return null;
+  const [uid, exp, sig] = parts;
+  const expected = signUserSession(uid, Number(exp)).split(".").slice(-1)[0];
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  if (!Number.isInteger(Number(exp)) || Date.now() > Number(exp)) return null;
+  const id = Number(uid);
+  return Number.isInteger(id) ? id : null;
+}
+
+function setSessionCookie(req, res, userId) {
+  const secure = req.secure || req.headers["x-forwarded-proto"] === "https";
+  res.cookie(USER_COOKIE, signUserSession(userId, Date.now() + USER_SESSION_MS), {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/api",
+    secure,
+    maxAge: USER_SESSION_MS,
+  });
+}
+
+// Populates req.user from the session cookie / bearer token (one lookup per request)
+async function attachUser(req, _res, next) {
+  const token = parseCookies(req)[USER_COOKIE] || (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const userId = verifyUserSession(token);
+  if (userId) {
+    const { rows } = await q("SELECT id, name, email, role FROM users WHERE id = $1", [userId]);
+    if (rows[0]) req.user = rows[0];
+  }
+  next();
+}
+app.use("/api", attachUser);
+
+function requireUser(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: "Sign in to do that" });
+  next();
+}
 
 const PORT = process.env.PORT || 4000;
 
@@ -320,6 +380,7 @@ app.post("/api/bookings", purchaseLimiter, async (req, res) => {
       contactName: cleanName,
       email: email.trim().toLowerCase(),
       phone: phone.trim(),
+      userId: req.user?.id ?? null,
     });
     res.status(201).json(booking);
   } catch (err) {
@@ -331,7 +392,7 @@ app.post("/api/bookings", purchaseLimiter, async (req, res) => {
   }
 });
 
-async function createBooking({ tripId, travelDate, seats, contactName, email, phone }) {
+async function createBooking({ tripId, travelDate, seats, contactName, email, phone, userId = null }) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -362,9 +423,9 @@ async function createBooking({ tripId, travelDate, seats, contactName, email, ph
     const total = Number(trip.price) * seats.length;
     const pnr = makePnr();
     const ins = await client.query(
-      `INSERT INTO bookings (pnr, trip_id, travel_date, contact_name, email, phone, total_amount)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-      [pnr, tripId, travelDate, contactName, email, phone, total]
+      `INSERT INTO bookings (pnr, trip_id, travel_date, contact_name, email, phone, total_amount, user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [pnr, tripId, travelDate, contactName, email, phone, total, userId]
     );
     const bookingId = ins.rows[0].id;
 
@@ -483,10 +544,17 @@ app.post("/api/bookings/:pnr/cancel", lookupLimiter, async (req, res) => {
 
 // List bookings by email
 app.get("/api/my-bookings", lookupLimiter, async (req, res) => {
-  const email = String(req.query.email || "").trim().toLowerCase().slice(0, 120);
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
-    return res.status(400).json({ error: "A valid email is required" });
   try {
+    // Authorization: signed-in users always see their own ledger, even if a
+    // different email is supplied in the query string.
+    if (req.user) {
+      const { rows } = await q("SELECT pnr FROM bookings WHERE user_id = $1 ORDER BY created_at DESC", [req.user.id]);
+      const tickets = await Promise.all(rows.map((r) => ticketPayload(r.pnr)));
+      return res.json(tickets.filter(Boolean));
+    }
+    const email = String(req.query.email || "").trim().toLowerCase().slice(0, 120);
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+      return res.status(400).json({ error: "A valid email is required (or sign in)" });
     const { rows } = await q("SELECT pnr FROM bookings WHERE email = $1 ORDER BY created_at DESC", [email]);
     const tickets = await Promise.all(rows.map((r) => ticketPayload(r.pnr)));
     res.json(tickets.filter(Boolean));
@@ -504,6 +572,63 @@ app.get("/api/health", async (_req, res) => {
     console.error(err);
     res.status(500).json({ ok: false, db: "unreachable" });
   }
+});
+
+// ---------- user auth endpoints ----------
+app.post("/api/auth/register", loginLimiter, async (req, res) => {
+  const name = String(req.body?.name || "").trim().slice(0, 80);
+  const email = String(req.body?.email || "").trim().toLowerCase().slice(0, 120);
+  const password = String(req.body?.password || "");
+
+  if (name.length < 2) return res.status(400).json({ error: "Your name is required" });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+    return res.status(400).json({ error: "A valid email is required" });
+  if (password.length < 8)
+    return res.status(400).json({ error: "Password must be at least 8 characters" });
+  if (password.length > 100)
+    return res.status(400).json({ error: "Password is too long" });
+
+  try {
+    const existing = await q("SELECT id FROM users WHERE email = $1", [email]);
+    if (existing.rows[0]) return res.status(409).json({ error: "An account with this email already exists" });
+    const hash = await bcrypt.hash(password, 10);
+    const { rows } = await q(
+      "INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id, name, email, role",
+      [name, email, hash]
+    );
+    setSessionCookie(req, res, rows[0].id);
+    res.status(201).json({ user: rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Registration failed" });
+  }
+});
+
+app.post("/api/auth/login", loginLimiter, async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase().slice(0, 120);
+  const password = String(req.body?.password || "");
+  try {
+    const { rows } = await q("SELECT id, name, email, role, password_hash FROM users WHERE email = $1", [email]);
+    const user = rows[0];
+    // One generic message: don't reveal whether the email exists
+    const hash = user?.password_hash || "$2a$10$invalidsaltinvalidsaltinvalidsaltinvalidsaltinvalidsalthe";
+    const ok = await bcrypt.compare(password, hash);
+    if (!user || !ok) return res.status(401).json({ error: "Wrong email or password" });
+    setSessionCookie(req, res, user.id);
+    res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Login failed" });
+  }
+});
+
+app.get("/api/auth/me", requireUser, (req, res) => {
+  res.json({ user: req.user });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  res.clearCookie(USER_COOKIE, { path: "/api" });
+  res.json({ user: null });
 });
 
 // ---------- admin dashboard endpoints ----------
