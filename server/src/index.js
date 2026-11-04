@@ -8,6 +8,9 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pool, q, ensureSchema, seedIfEmpty, seedStaffIfNone } from "./db.js";
+import { cancellationFee } from "./fares.js";
+import { luhnValid } from "./luhn.js";
+import { userSessionCodec } from "./session.js";
 
 const app = express();
 
@@ -154,23 +157,9 @@ const userSecret = () =>
   process.env.AUTH_SECRET
     ? createHmac("sha256", process.env.AUTH_SECRET).update("riders-user-session-v1").digest()
     : createHmac("sha256", ADMIN_PASSWORD).update("riders-user-session-v1").digest();
-
-function signUserSession(userId, expMs) {
-  const payload = `${userId}.${expMs}`;
-  return `${payload}.${createHmac("sha256", userSecret()).update(payload).digest("base64url")}`;
-}
-function verifyUserSession(token) {
-  const parts = (token || "").split(".");
-  if (parts.length !== 3) return null;
-  const [uid, exp, sig] = parts;
-  const expected = signUserSession(uid, Number(exp)).split(".").slice(-1)[0];
-  const a = Buffer.from(sig);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  if (!Number.isInteger(Number(exp)) || Date.now() > Number(exp)) return null;
-  const id = Number(uid);
-  return Number.isInteger(id) ? id : null;
-}
+const userSession = userSessionCodec(userSecret());
+const signUserSession = userSession.sign;
+const verifyUserSession = userSession.verify;
 
 function setSessionCookie(req, res, userId) {
   const secure = req.secure || req.headers["x-forwarded-proto"] === "https";
@@ -236,21 +225,6 @@ const soldSeatsStmt = (tripId, date) =>
   );
 
 // Mock payment validation: Luhn check; decline cards ending in "0000"
-function luhnValid(numStr) {
-  let sum = 0;
-  let dbl = false;
-  for (let i = numStr.length - 1; i >= 0; i--) {
-    let d = numStr.charCodeAt(i) - 48;
-    if (d < 0 || d > 9) return false;
-    if (dbl) {
-      d *= 2;
-      if (d > 9) d -= 9;
-    }
-    sum += d;
-    dbl = !dbl;
-  }
-  return sum % 10 === 0;
-}
 
 // ---------- routes ----------
 
@@ -479,12 +453,6 @@ async function ticketPayload(pnr) {
     checked_in_at: bk.checked_in_at,
     created_at: bk.created_at,
   };
-}
-
-// Cancellation charge: 10% of what was paid, at least ৳50, rounded up to ৳50
-function cancellationFee(total) {
-  const n = Number(total) || 0;
-  return Math.max(50, Math.ceil((n * 0.1) / 50) * 50);
 }
 
 // What a cancellation would cost, before confirming

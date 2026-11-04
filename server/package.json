@@ -10,7 +10,8 @@
     "seed": "node src/seed.js",
     "seed-staff": "node -e \"import('./src/db.js').then(async m => { await m.ensureSchema(); await m.seedStaffIfNone(); process.exit(0) })\"",
     "test": "node scripts/smoke.mjs",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "unit": "node --test test/unit.test.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

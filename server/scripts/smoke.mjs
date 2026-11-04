@@ -8,6 +8,7 @@
 // cancel-quote math and cancellation. Exits 1 if anything fails.
 
 const BASE = (process.env.SMOKE_BASE_URL || "http://localhost:4000").replace(/\/$/, "");
+import { luhnValid } from "../src/luhn.js";
 
 let failures = 0;
 function check(label, cond, detail = "") {
@@ -45,21 +46,6 @@ async function waitForHealth() {
   }
 }
 
-function luhnCheck(num) {
-  let sum = 0;
-  let alt = false;
-  for (let i = num.length - 1; i >= 0; i--) {
-    let d = Number(num[i]);
-    if (alt) {
-      d *= 2;
-      if (d > 9) d -= 9;
-    }
-    sum += d;
-    alt = !alt;
-  }
-  return sum % 10 === 0;
-}
-
 // Find a Luhn-valid 16-digit card ending in "0000" — exactly what the mock
 // issuer rejects — so the decline path is exercised with a legal card.
 // Shape: 4 + a + 9 zeros + b + 0000  (1+1+9+1+4 = 16 digits)
@@ -67,7 +53,7 @@ function declinedCard() {
   for (let a = 0; a <= 9; a++) {
     for (let b = 0; b <= 9; b++) {
       const card = `4${a}000000000${b}0000`;
-      if (card.length === 16 && luhnCheck(card)) return card;
+      if (card.length === 16 && luhnValid(card)) return card;
     }
   }
   throw new Error("could not construct a Luhn-valid card ending in 0000");

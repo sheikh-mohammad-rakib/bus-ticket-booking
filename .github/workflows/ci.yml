@@ -57,6 +57,7 @@ jobs:
           cache: npm
           cache-dependency-path: server/package-lock.json
       - run: npm ci
+      - run: npm run unit
       - name: Start API (creates schema + seeds Bangladesh data on first boot)
         run: node src/index.js > api.log 2>&1 &
       - run: npm test
