@@ -597,6 +597,7 @@ button:focus-visible,
 }
 .pill-green { background: #e3f2ea; color: #067a4e; }
 .pill-red { background: #fbe9e7; color: var(--red); }
+.pill-boarded { background: var(--green-tint); color: var(--green); }
 .link-btn { background: none; border: none; padding: 0; color: #067a4e; text-decoration: underline; cursor: pointer; font: inherit; }
 
 /* ============ Auth ============ */
@@ -635,10 +636,28 @@ button:focus-visible,
 }
 
 /* ============ Print ============ */
+/* The ticket page prints as the ticket card itself (like a real BD bus
+   e-ticket): nothing else — header, stepper, buttons, page chrome — appears.
+   Colors are forced so the green enamel band, PNR and fares survive ink. */
 @media print {
+  @page { margin: 14mm; }
+
   body { background: #fff; }
-  .no-print, .site-head, .site-foot, .stepper { display: none !important; }
-  .ticket-card, .panel, .side-stub { background: #fff; border-color: #999; box-shadow: none; }
-  .ticket-card::before { display: none; }
-  .stub-list dt, .muted { color: #444; }
+  /* everything but the card goes */
+  .no-print, .site-head, .site-foot, .stepper, .step-head,
+  .ticket-contact, .error-banner, .modal-backdrop { display: none !important; }
+
+  /* force colors so the design survives printing (green band, red Cancelled) */
+  *, *::before, *::after {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .step-shell { max-width: 100%; margin: 0; padding: 0; }
+
+  .ticket-card {
+    box-shadow: none;
+    border-color: var(--line);
+    break-inside: avoid;
+  }
 }

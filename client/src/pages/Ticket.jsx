@@ -117,7 +117,7 @@ export function Ticket() {
         {!cancelled && <p className="step-sub muted">Show this ticket to the staff before boarding.</p>}
       </header>
 
-      <div className="ticket-card">
+      <div className="ticket-card" id="ticket-print">
         <div className="ticket-main">
           <div className="ticket-pnr">
             <span className="ticket-pnr-label">Booking code</span>
@@ -170,22 +170,25 @@ export function Ticket() {
       </p>
 
       {!cancelled && (
-        <>
-          <div className="ticket-actions no-print">
-            <button className="btn btn-amber" onClick={() => window.print()}>Print ticket</button>
-            <button className="btn btn-ghost" onClick={() => setModalOpen(true)} disabled={busy}>Cancel booking</button>
-          </div>
-          {modalOpen && (
-            <CancelModal
-              ticket={ticket}
-              onClose={() => !busy && setModalOpen(false)}
-              onConfirm={cancel}
-              busy={busy}
-              quote={quote}
-              quoteError={quoteError}
-            />
-          )}
-        </>
+        <div className="ticket-actions no-print">
+          <button className="btn btn-amber" onClick={() => window.print()}>Print ticket</button>
+          <button className="btn btn-ghost" onClick={() => setModalOpen(true)} disabled={busy}>Cancel booking</button>
+        </div>
+      )}
+      {cancelled && (
+        <div className="ticket-actions no-print">
+          <button className="btn btn-amber" onClick={() => window.print()}>Print receipt</button>
+        </div>
+      )}
+      {modalOpen && (
+        <CancelModal
+          ticket={ticket}
+          onClose={() => !busy && setModalOpen(false)}
+          onConfirm={cancel}
+          busy={busy}
+          quote={quote}
+          quoteError={quoteError}
+        />
       )}
       <div className="ticket-actions no-print">
         <Link className="btn btn-ghost" to="/">Book another ride</Link>
