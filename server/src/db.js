@@ -90,11 +90,45 @@ export async function ensureSchema() {
       name          TEXT NOT NULL,
       email         TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
-      role          TEXT NOT NULL DEFAULT 'passenger' CHECK (role IN ('passenger','admin')),
+      role          TEXT NOT NULL DEFAULT 'passenger' CHECK (role IN ('passenger','counter_operator','admin','owner')),
       created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id);
   `);
+
+  // Three-role system: passenger < counter operator < owner.
+  // Rebuilds the role CHECK (legacy 'admin' became 'owner'); idempotent.
+  await pool.query(`
+    ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+    ALTER TABLE users ADD CONSTRAINT users_role_check
+      CHECK (role IN ('passenger','counter_operator','admin','owner')) NOT VALID;
+  `);
+  await pool.query("UPDATE users SET role = 'owner' WHERE role = 'admin'");
+  await pool.query("ALTER TABLE users VALIDATE CONSTRAINT users_role_check").catch(() => {});
+
+  // Boarding stamp for counter check-in
+  await pool.query("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS checked_in_at TIMESTAMPTZ");
+}
+
+// Demo/CI convenience: guarantee staff accounts exist for each console level —
+// an owner and a counter operator. Only creates a demo account for a role that
+// has no account at all, and never touches existing accounts (passwords stay
+// yours).
+export async function seedStaffIfNone() {
+  try {
+    const { rows } = await pool.query(
+      `SELECT role, COUNT(*)::int AS n FROM users WHERE role IN ('counter_operator','owner','admin') GROUP BY role`
+    );
+    const counts = Object.fromEntries(rows.map((r) => [r.role, r.n]));
+    const need = [];
+    if ((counts.owner || 0) + (counts.admin || 0) === 0) need.push("owner");
+    if ((counts.counter_operator || 0) === 0) need.push("counter_operator");
+    if (need.length === 0) return;
+    const { seedStaff } = await import("./seed.js");
+    await seedStaff(need);
+  } catch (err) {
+    console.error("Staff seeding failed:", err.message);
+  }
 }
 
 export async function seedIfEmpty() {

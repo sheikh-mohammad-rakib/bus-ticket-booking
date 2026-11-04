@@ -1,4 +1,5 @@
 import { pathToFileURL } from "node:url";
+import bcrypt from "bcryptjs";
 import { pool } from "./db.js";
 
 export async function seed() {
@@ -78,6 +79,26 @@ export async function seed() {
     }
   }
   console.log(`Seeded ${cityNames.length} cities, ${busDefs.length} buses, ${n} trips.`);
+}
+
+// Demo staff accounts. Password isn't env-configurable on purpose: these are
+// throwaway demo logins, and anything real should be a registered account
+// promoted with scripts/make-admin.mjs. README documents them.
+export const STAFF_PASSWORD = "riders-demo-1";
+const STAFF_ACCOUNTS = [
+  { name: "Demo Owner", email: "owner@riders.demo", role: "owner" },
+  { name: "Counter Desk", email: "counter@riders.demo", role: "counter_operator" },
+];
+export async function seedStaff(roles = STAFF_ACCOUNTS.map((s) => s.role)) {
+  const list = STAFF_ACCOUNTS.filter((s) => roles.includes(s.role));
+  const hash = await bcrypt.hash(STAFF_PASSWORD, 10);
+  for (const s of list) {
+    await pool.query(
+      "INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO NOTHING",
+      [s.name, s.email, hash, s.role]
+    );
+  }
+  console.log(`Seeded demo staff accounts: ${list.map((s) => s.role).join(", ")}.`);
 }
 
 const isMain = import.meta.url === pathToFileURL(process.argv[1] ?? "").href;

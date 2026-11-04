@@ -16,6 +16,7 @@ export function Admin() {
   const { user, signOut } = useAuth();
   const [checked, setChecked] = useState(false);
   const [authed, setAuthed] = useState(false);
+  const [level, setLevel] = useState(null); // 'operator' | 'owner'
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -23,23 +24,43 @@ export function Admin() {
   const [rows, setRows] = useState([]);
   const [filter, setFilter] = useState("");
   const [appliedFilter, setAppliedFilter] = useState("");
+  const [busyCheck, setBusyCheck] = useState(null);
 
-  const isAdmin = authed || user?.role === "admin";
+  const isAdmin = authed || user?.role === "owner" || user?.role === "counter_operator";
+  const isOwner = level === "owner" || user?.role === "owner";
 
-  // Restore an existing session on mount (password cookie or admin-role account)
+  // Restore an existing session on mount (password cookie or staff account)
   useEffect(() => {
+    auth0();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function auth0() {
     api.adminMe()
-      .then(() => setAuthed(true))
+      .then((r) => {
+        setAuthed(true);
+        setLevel(r.level || (user?.role === "owner" ? "owner" : null));
+      })
       .catch(() => {})
       .finally(() => setChecked(true));
-  }, []);
+  }
 
-  // Pull data once signed in
+  // Pull data once signed in — financials for the owner, ledger for everyone
   useEffect(() => {
     if (!isAdmin) return;
-    api.adminStats().then(setStats).catch((err) => setError(err.message));
+    if (isOwner) api.adminStats().then(setStats).catch((err) => setError(err.message));
+    else setStats(null);
     api.adminBookings(appliedFilter).then(setRows).catch((err) => setError(err.message));
-  }, [isAdmin, appliedFilter]);
+  }, [isAdmin, isOwner, appliedFilter]);
+
+  function checkIn(pnr) {
+    setError("");
+    setBusyCheck(pnr);
+    api.adminCheckIn(pnr)
+      .then(() => api.adminBookings(appliedFilter))
+      .then(setRows)
+      .catch((err) => setError(err.message))
+      .finally(() => setBusyCheck(null));
+  }
 
   function login(e) {
     e.preventDefault();
@@ -99,42 +120,48 @@ export function Admin() {
   return (
     <div className="step-shell">
       <header className="step-head">
-        <h1>Operator console</h1>
+        <h1>{isOwner ? "Owner console" : "Counter console"}</h1>
         <p className="step-sub muted">
-          Live figures from the bookings ledger.{" "}
+          {isOwner
+            ? "Live figures from the bookings ledger."
+            : "Lookup, check-in and cancellations at the counter. Financials are visible to the owner only."}{" "}
           <button className="link-btn" onClick={logout}>Sign out</button>
         </p>
       </header>
 
       {error && <p className="error-banner" role="alert">{error}</p>}
 
-      <div className="stat-grid">
-        <StatCard label="Bookings today" value={s.booked_today ?? "—"} />
-        <StatCard label="Seats sold" value={s.seats_sold ?? "—"} sub={`${s.confirmed ?? 0} confirmed`} />
-        <StatCard label="Revenue" value={s.revenue == null ? "—" : money(s.revenue)} tone="stat-green" />
-        <StatCard
-          label="Cancellations"
-          value={`${s.cancelled ?? "—"} (${cancelRate}%)`}
-          sub={`fees ${s.cancel_fees ? money(s.cancel_fees) : "৳0"} · refunds ${s.refunds ? money(s.refunds) : "৳0"}`}
-          tone="stat-red"
-        />
-      </div>
+      {isOwner && (
+        <>
+          <div className="stat-grid">
+            <StatCard label="Bookings today" value={s.booked_today ?? "—"} />
+            <StatCard label="Seats sold" value={s.seats_sold ?? "—"} sub={`${s.confirmed ?? 0} confirmed`} />
+            <StatCard label="Revenue" value={s.revenue == null ? "—" : money(s.revenue)} tone="stat-green" />
+            <StatCard
+              label="Cancellations"
+              value={`${s.cancelled ?? "—"} (${cancelRate}%)`}
+              sub={`fees ${s.cancel_fees ? money(s.cancel_fees) : "৳0"} · refunds ${s.refunds ? money(s.refunds) : "৳0"}`}
+              tone="stat-red"
+            />
+          </div>
 
-      {s.top_routes?.length > 0 && (
-        <section className="panel">
-          <h2>Best-selling routes</h2>
-          <ul className="route-board">
-            {s.top_routes.map((r) => (
-              <li key={`${r.from_city}-${r.to_city}`}>
-                <span className="route-name">
-                  {r.from_city} → {r.to_city}
-                </span>
-                <span className="route-seats mono">{r.seats} seats</span>
-                <span className="route-revenue mono">{money(r.revenue)}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
+          {s.top_routes?.length > 0 && (
+            <section className="panel">
+              <h2>Best-selling routes</h2>
+              <ul className="route-board">
+                {s.top_routes.map((r) => (
+                  <li key={`${r.from_city}-${r.to_city}`}>
+                    <span className="route-name">
+                      {r.from_city} → {r.to_city}
+                    </span>
+                    <span className="route-seats mono">{r.seats} seats</span>
+                    <span className="route-revenue mono">{money(r.revenue)}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </>
       )}
 
       <section className="panel">
@@ -169,6 +196,7 @@ export function Admin() {
                   <th>Passenger</th>
                   <th className="num">Amount</th>
                   <th>Status</th>
+                  <th>Boarding</th>
                 </tr>
               </thead>
               <tbody>
@@ -189,6 +217,20 @@ export function Admin() {
                       <span className={`pill ${b.status === "cancelled" ? "pill-red" : "pill-green"}`}>
                         {b.status}
                       </span>
+                    </td>
+                    <td>
+                      {b.status !== "cancelled" &&
+                        (b.checked_in_at ? (
+                          <span className="pill pill-boarded">boarded ✓</span>
+                        ) : (
+                          <button
+                            className="btn btn-ghost btn--small"
+                            onClick={() => checkIn(b.pnr)}
+                            disabled={busyCheck === b.pnr}
+                          >
+                            {busyCheck === b.pnr ? "…" : "Check in"}
+                          </button>
+                        ))}
                     </td>
                   </tr>
                 ))}

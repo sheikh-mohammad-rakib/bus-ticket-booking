@@ -19,7 +19,9 @@ export function Header() {
           <span className="user-chip">
             <span className="user-name" title={user.email}>
               {user.name.split(" ")[0]}
-              {user.role === "admin" && <span className="role-badge">admin</span>}
+              {(user.role === "owner" || user.role === "admin" || user.role === "counter_operator") && (
+                <span className="role-badge">{user.role === "counter_operator" ? "counter" : "owner"}</span>
+              )}
             </span>
             <button className="link-btn" onClick={signOut}>Sign out</button>
           </span>

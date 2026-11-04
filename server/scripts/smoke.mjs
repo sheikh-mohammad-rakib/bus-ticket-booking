@@ -258,10 +258,63 @@ async function main() {
     mineUser.status === 200 && Array.isArray(mineUser.body) && mineUser.body.some((b) => b.pnr === ubk.body?.pnr)
   );
   const notAdmin = await userFetch("GET", "/api/admin/stats");
-  check("passenger role blocked from console (401)", notAdmin.status === 401);
+  check("passenger role denied financial stats (403)", notAdmin.status === 403);
   const lo = await fetch(`${BASE}/api/auth/logout`, { method: "POST", headers: { Cookie: userCookie } });
   const cleared = ((lo.headers.getSetCookie?.() || [])[0] || "").includes("riders_session=");
   check("logout clears session cookie", lo.status === 200 && cleared);
+
+  // --- three roles: counter operator < owner ---
+  // Demo staff accounts are seeded by the server on first boot.
+  const staffLogin = async (email, password) => {
+    const res = await fetch(`${BASE}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    if (res.status !== 200) throw new Error(`staff login failed for ${email} (HTTP ${res.status})`);
+    const cookie2 = ((res.headers.getSetCookie?.() || [])[0] || "").split(";")[0];
+    return async (method, path, body) =>
+      fetch(BASE + path, { method, headers: { Cookie: cookie2, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined })
+        .then(async (resp) => ({ status: resp.status, body: await resp.json().catch(() => null) }));
+  };
+
+  const counter = await staffLogin("counter@riders.demo", "riders-demo-1");
+  const counterMe = await counter("GET", "/api/admin/me");
+  check("counter operator authenticates at operator level", counterMe.status === 200 && counterMe.body?.level === "operator");
+  const counterStats = await counter("GET", "/api/admin/stats");
+  check("operator denied financial stats (403)", counterStats.status === 403);
+  const counterLedger = await counter("GET", "/api/admin/bookings");
+  check("operator sees bookings ledger", counterLedger.status === 200 && Array.isArray(counterLedger.body) && counterLedger.body.length >= 1);
+
+  // Boarding check-in on the confirmed booking made by the user account above
+  const boardPnr = ubk.body?.pnr;
+  const ci = await counter("POST", `/api/admin/bookings/${boardPnr}/checkin`);
+  check("operator checks a passenger in", ci.status === 200 && ci.body?.checked_in === true);
+  const ciDup = await counter("POST", `/api/admin/bookings/${boardPnr}/checkin`);
+  check("double check-in rejected (409)", ciDup.status === 409);
+  const ledgerAfter = await counter("GET", `/api/admin/bookings?q=${boardPnr}`);
+  check(
+    "ledger row carries the check-in stamp",
+    ledgerAfter.status === 200 && Array.isArray(ledgerAfter.body) && !!ledgerAfter.body[0]?.checked_in_at
+  );
+
+  const owner = await staffLogin("owner@riders.demo", "riders-demo-1").catch(() => null);
+  if (owner) {
+    // Seeded demo owner account exists (fresh DBs get one at boot) — verify it
+    const ownerMe = await owner("GET", "/api/admin/me");
+    check("owner authenticates at owner level", ownerMe.status === 200 && ownerMe.body?.level === "owner");
+    const ownerStats = await owner("GET", "/api/admin/stats");
+    check("owner sees financial stats", ownerStats.status === 200 && "revenue" in (ownerStats.body || {}));
+  } else {
+    // No demo owner in this database: the operator-password cookie is owner level
+    const ownerFetch = async (method, path) =>
+      fetch(BASE + path, { method, headers: { Cookie: cookie } })
+        .then(async (resp) => ({ status: resp.status, body: await resp.json().catch(() => null) }));
+    const ownerMe = await ownerFetch("GET", "/api/admin/me");
+    check("owner level authenticates via password cookie", ownerMe.status === 200 && ownerMe.body?.level === "owner");
+    const ownerStats = await ownerFetch("GET", "/api/admin/stats");
+    check("owner sees financial stats", ownerStats.status === 200 && "revenue" in (ownerStats.body || {}));
+  }
 }
 
 main().catch((err) => {

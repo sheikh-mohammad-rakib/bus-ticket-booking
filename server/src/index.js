@@ -7,7 +7,7 @@ import { randomBytes, createHmac, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { pool, q, ensureSchema, seedIfEmpty } from "./db.js";
+import { pool, q, ensureSchema, seedIfEmpty, seedStaffIfNone } from "./db.js";
 
 const app = express();
 
@@ -123,22 +123,24 @@ function parseCookies(req) {
   }
   return out;
 }
-function requireAdmin(req, res, next) {
-  // An account with role=admin satisfies the console gate too
-  if (req.user?.role === "admin") return next();
-  const cookie = parseCookies(req)[ADMIN_COOKIE];
-  const bearer = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
-  if (verifySession(cookie) || verifySession(bearer)) return next();
-  return res.status(401).json({ error: "Admin access required" });
-}
 
-// Brute-force guard on the login form specifically.
+// Brute-force guard on the login forms only. Registration has its own, smaller
+// limiter — a full smoke run does several legitimate logins plus one register,
+// so sharing one budget made second test runs 429.
 const loginLimiter = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 30,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: "Too many login attempts — try again in a few minutes." },
+});
+
+const registerLimiter = rateLimit({
   windowMs: 10 * 60_000,
   limit: 10,
   standardHeaders: "draft-8",
   legacyHeaders: false,
-  message: { error: "Too many login attempts — try again in a few minutes." },
+  message: { error: "Too many sign-ups from this device — try again in a few minutes." },
 });
 
 // ---------- user accounts ----------
@@ -474,6 +476,7 @@ async function ticketPayload(pnr) {
     total_amount: bk.total_amount,
     cancellation_fee: bk.cancellation_fee,
     refund_amount: bk.refund_amount,
+    checked_in_at: bk.checked_in_at,
     created_at: bk.created_at,
   };
 }
@@ -575,7 +578,7 @@ app.get("/api/health", async (_req, res) => {
 });
 
 // ---------- user auth endpoints ----------
-app.post("/api/auth/register", loginLimiter, async (req, res) => {
+app.post("/api/auth/register", registerLimiter, async (req, res) => {
   const name = String(req.body?.name || "").trim().slice(0, 80);
   const email = String(req.body?.email || "").trim().toLowerCase().slice(0, 120);
   const password = String(req.body?.password || "");
@@ -647,7 +650,7 @@ app.post("/api/admin/login", loginLimiter, (req, res) => {
     secure,
     maxAge: ADMIN_SESSION_MS,
   });
-  res.json({ admin: true });
+  res.json({ admin: true, level: "owner" });
 });
 
 app.post("/api/admin/logout", (req, res) => {
@@ -656,13 +659,37 @@ app.post("/api/admin/logout", (req, res) => {
 });
 
 app.get("/api/admin/me", (req, res) => {
-  const cookie = parseCookies(req)[ADMIN_COOKIE];
-  if (!verifySession(cookie)) return res.status(401).json({ error: "Admin access required" });
-  res.json({ admin: true });
+  const level = operatorLevel(req);
+  if (!level) return res.status(401).json({ error: "Admin access required" });
+  res.json({ admin: true, level });
 });
 
+// Access ladder: counter operator < owner. The operator password (if used)
+// grants owner level; staff accounts carry a role.
+function operatorLevel(req) {
+  if (verifySession(parseCookies(req)[ADMIN_COOKIE])) return "owner";
+  if (req.user?.role === "owner") return "owner";
+  if (req.user?.role === "counter_operator") return "operator";
+  return null;
+}
+
+function requireOperator(req, res, next) {
+  // 401 = anonymous; 403 = signed in but not staff
+  if (operatorLevel(req)) return next();
+  if (req.user) return res.status(403).json({ error: "Staff access required" });
+  res.status(401).json({ error: "Staff access required" });
+}
+
+function requireOwner(req, res, next) {
+  const level = operatorLevel(req);
+  if (level === "owner") return next();
+  // 401 = anonymous; 403 = signed in (staff or passenger) but not the owner
+  if (level || req.user) return res.status(403).json({ error: "Owner access required" });
+  res.status(401).json({ error: "Staff access required" });
+}
+
 // Aggregate stats for the dashboard cards
-app.get("/api/admin/stats", requireAdmin, async (_req, res) => {
+app.get("/api/admin/stats", requireOwner, async (_req, res) => {
   try {
     const { rows } = await q(`
       SELECT
@@ -696,8 +723,8 @@ app.get("/api/admin/stats", requireAdmin, async (_req, res) => {
   }
 });
 
-// Recent/filtered bookings table
-app.get("/api/admin/bookings", requireAdmin, async (req, res) => {
+// Recent/filtered bookings ledger — counter operators and owners both need this
+app.get("/api/admin/bookings", requireOperator, async (req, res) => {
   const query = String(req.query.q || "").trim().slice(0, 60);
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
   try {
@@ -705,7 +732,7 @@ app.get("/api/admin/bookings", requireAdmin, async (req, res) => {
       ? await q(
           `SELECT bk.pnr, bk.travel_date, bk.status, bk.total_amount,
                   bk.cancellation_fee, bk.refund_amount, bk.contact_name, bk.email,
-                  bk.created_at, t.depart_time, b.operator,
+                  bk.created_at, t.depart_time, b.operator, bk.checked_in_at,
                   cf.name AS from_city, ct.name AS to_city,
                   COALESCE(STRING_AGG(bs.seat, ' ' ORDER BY bs.seat), '') AS seats
            FROM bookings bk
@@ -723,7 +750,7 @@ app.get("/api/admin/bookings", requireAdmin, async (req, res) => {
       : await q(
           `SELECT bk.pnr, bk.travel_date, bk.status, bk.total_amount,
                   bk.cancellation_fee, bk.refund_amount, bk.contact_name, bk.email,
-                  bk.created_at, t.depart_time, b.operator,
+                  bk.created_at, t.depart_time, b.operator, bk.checked_in_at,
                   cf.name AS from_city, ct.name AS to_city,
                   COALESCE(STRING_AGG(bs.seat, ' ' ORDER BY bs.seat), '') AS seats
            FROM bookings bk
@@ -744,6 +771,27 @@ app.get("/api/admin/bookings", requireAdmin, async (req, res) => {
   }
 });
 
+// Counter operator stamps a boarding ticket
+app.post("/api/admin/bookings/:pnr/checkin", requireOperator, async (req, res) => {
+  const pnr = String(req.params.pnr).toUpperCase().slice(0, 20);
+  try {
+    const { rows } = await q(
+      `SELECT bk.pnr, bk.status, bk.checked_in_at FROM bookings bk WHERE bk.pnr = $1`,
+      [pnr]
+    );
+    const bk = rows[0];
+    if (!bk) return res.status(404).json({ error: "Booking not found" });
+    if (bk.status === "cancelled") return res.status(409).json({ error: "This ticket was cancelled" });
+    if (bk.checked_in_at) return res.status(409).json({ error: "Already checked in", checked_in_at: bk.checked_in_at });
+    await q("UPDATE bookings SET checked_in_at = now() WHERE pnr = $1", [pnr]);
+    const out = await q("SELECT checked_in_at FROM bookings WHERE pnr = $1", [pnr]);
+    res.json({ pnr, checked_in: true, checked_in_at: out.rows[0].checked_in_at });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Check-in failed" });
+  }
+});
+
 app.use((_err, _req, res, _next) => {
   res.status(500).json({ error: "Internal server error" });
 });
@@ -761,6 +809,7 @@ if (existsSync(clientDist)) {
 async function main() {
   await ensureSchema();
   await seedIfEmpty();
+  await seedStaffIfNone();
   app.listen(PORT, () => {
     console.log(`API listening on http://localhost:${PORT} (Postgres)`);
   });

@@ -30,6 +30,7 @@ export const api = {
   adminMe: () => request("/admin/me"),
   adminStats: () => request("/admin/stats"),
   adminBookings: (q = "") => request(`/admin/bookings${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  adminCheckIn: (pnr) => request(`/admin/bookings/${pnr}/checkin`, { method: "POST" }),
 };
 
 export const money = (n) =>

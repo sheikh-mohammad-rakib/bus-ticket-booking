@@ -107,41 +107,62 @@ Checkout is simulated (no real charge):
 | POST   | `/bookings/:pnr/cancel`   | charges 10% (min ৳50), seats freed |
 | GET    | `/my-bookings?email`      | booking history                    |
 
-Operator console (auth required — admin password session, or a signed-in
-account with role `admin`; rate-limited on login):
+Operator console (auth required — admin password session, or a signed-in staff
+account; login endpoints are rate-limited):
 
-| Method | Path                      | Notes                              |
-| ------ | ------------------------- | ---------------------------------- |
-| POST   | `/admin/login` / `/admin/logout` / `/admin/me` | session manage |
-| GET    | `/admin/stats`            | revenue, seats sold, cancellations, top routes |
-| GET    | `/admin/bookings?q&limit` | searchable bookings ledger         |
+| Method | Path                             | Notes                                        |
+| ------ | -------------------------------- | -------------------------------------------- |
+| POST   | `/admin/login` / `/admin/logout` / `/admin/me` | session manage                  |
+| GET    | `/admin/stats`                   | revenue, seats sold, cancellations, top routes — **owner only** |
+| GET    | `/admin/bookings?q&limit`        | searchable bookings ledger — operator and owner |
+| POST   | `/admin/bookings/:pnr/checkin`   | stamp boarding — operator and owner; second call 409 |
 
 ## Accounts & authorization
+
+Three roles form an access ladder — `passenger < counter_operator < owner`:
+
+| Role | Can |
+| ---- | --- |
+| `passenger` (default) | book, keep and cancel own tickets |
+| `counter_operator` | everything a passenger can, plus the counter console: bookings ledger lookup and boarding check-in |
+| `owner` | everything the counter can, plus the financial view: revenue, seats sold, cancellations with fees/refunds, best-selling routes |
 
 - **Register / sign in** at `/login`: bcrypt-hashed passwords (salted, cost 10),
   duplicate emails rejected, sessions are HMAC-signed HttpOnly cookies
   (`Path=/api`, 30 days) — no session table needed and no token in JS.
-  Passengers log in via email+password; wrong logins give one generic error
-  (no account enumeration).
+  Wrong logins give one generic error (no account enumeration).
+- **HTTP status semantics on the console**: anonymous requests get `401`;
+  signed-in passengers get `403` on owner-only endpoints (authenticated but
+  not authorized); counter operators get `403` on owner-only financials.
 - **Ownership**: bookings store `user_id`. Signed-in users always receive their
   own ledger on `/my-bookings` — the email query string is ignored for them —
   so one account can't probe another's bookings. Guests keep the legacy
   email-based lookup (fine for a demo; a production deployment should retire it).
-- **Roles**: accounts are `passenger` (default) or `admin`. Admin accounts
-  bypass the operator password gate; passengers get 401 on console endpoints.
-  Promote an account from the CLI:
-  `node scripts/make-admin.mjs user@example.com` (append `demote` to reverse).
-- **Operator password**: still works for `/admin` (`ADMIN_PASSWORD`, demo
-  default `riders-admin` — set a real one anywhere reachable).
+- **Demo staff accounts**: on first boot, a database that lacks an owner or a
+  counter operator (no account of that role at all) is seeded with
+  `owner@riders.demo` and `counter@riders.demo`, password `riders-demo-1`.
+  Existing staff accounts are never touched (`ON CONFLICT DO NOTHING`); delete
+  or change them for anything real.
+- **Changing roles** from the CLI (account must exist — register in the app
+  first):
+  `node scripts/make-admin.mjs user@example.com owner` (or `counter`, or
+  `demote` to send back to passenger).
+- **Operator password**: still opens the console at owner level (`ADMIN_PASSWORD`,
+  demo default `riders-admin` — set a real one anywhere users are reachable).
 
 ## Operator console
 
-`/admin` in the app is a lightweight dashboard for the bus company: sign in to
-see revenue and seats sold, cancellation stats with fees/refunds, best-selling
-routes, and a searchable ledger of every booking (PNR, passenger, seats,
-amounts, refund status). Operator sessions are HMAC-signed HttpOnly cookies
-scoped to `/api/admin`, expiring after 12 hours; user sessions with the
-`admin` role enter directly.
+`/admin` in the app tailors itself to who signed in:
+
+- **Counter console** (counter operator): the searchable bookings ledger
+  (PNR, passenger, seats, amounts, refund status) with a **Check in** button per
+  confirmed ticket — stamps `checked_in_at`, shown as "boarded ✓"; a second
+  check-in is rejected with 409. No financial numbers are exposed.
+- **Owner console** (owner, or the operator password): everything the counter
+  sees plus revenue and seats-sold cards, cancellation stats with fees/refunds,
+  and best-selling routes.
+- The operator-password session is an HMAC-signed HttpOnly cookie scoped to
+  `/api/admin`, expiring after 12 hours; staff accounts enter directly.
 
 ## Design notes
 
@@ -171,8 +192,9 @@ scoped to `/api/admin`, expiring after 12 hours; user sessions with the
 - **Card data**: the mock gateway validates card numbers but stores only the
   paid amount — card numbers, CVVs and expiry are never persisted or logged.
 - **Accounts**: bcrypt-hashed passwords (cost 10) with HMAC-signed HttpOnly
-  session cookies; bookings are ownership-tagged (`user_id`); the `admin` role
-  gates the operator console; login forms are rate-limited (10/10 min).
+  session cookies; bookings are ownership-tagged (`user_id`); staff roles
+  (`counter_operator`, `owner`) gate the console with an access ladder; login
+  forms are rate-limited (30 logins / 10 min, 10 registrations / 10 min).
 - **Known limitation**: guest lookup by raw email still exists (as in real
   Bangladeshi bus apps); signed-in users are never affected by it — their
   ledger is strictly their own. A production deployment would retire it.
