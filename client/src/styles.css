@@ -501,7 +501,7 @@ button:focus-visible,
 }
 .ticket-stub { padding: 22px 24px; justify-content: center; display: flex; }
 
-.ticket-contact { margin-top: 16px; font-size: 0.9rem; }
+.ticket-contact { margin-top: 20px; font-size: 0.9rem; }
 .ticket-actions { display: flex; gap: 12px; margin-top: 22px; flex-wrap: wrap; }
 
 /* ============ Cancel modal ============ */
@@ -534,7 +534,7 @@ button:focus-visible,
 }
 .modal h2 { margin-top: 10px; color: var(--green-ink); font-size: 1.45rem; }
 .modal-sub { margin-bottom: 14px; }
-.modal-charges { margin: 0 0 6px; display: flex; flex-direction: column; gap: 8px; }
+.modal-charges { margin: 2px 0 10px; display: flex; flex-direction: column; gap: 8px; }
 .modal-charges > div { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; }
 .modal-charges dt { color: var(--muted); font-size: 0.88rem; }
 .modal-charges dd { margin: 0; }
@@ -574,22 +574,23 @@ button:focus-visible,
   margin-bottom: 20px;
 }
 .panel h2 { font-size: 1.15rem; color: var(--green-ink); margin-bottom: 12px; }
-.route-board { list-style: none; margin: 0; padding: 0; }
-.route-board li { display: flex; align-items: baseline; gap: 14px; padding: 9px 0; border-bottom: 1px dashed var(--line); }
+.route-board { list-style: none; margin: 0; padding: 2px 0 4px; }
+.route-board li { display: flex; align-items: baseline; gap: 14px; padding: 11px 2px; border-bottom: 1px dashed var(--line); }
 .route-board li:last-child { border-bottom: none; }
 .route-name { flex: 1; font-weight: 600; color: var(--ink); }
 .route-revenue { color: #067a4e; }
-.admin-search { display: flex; gap: 10px; margin-bottom: 14px; }
+.admin-search { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 18px; }
 .admin-search .field-input--slim { flex: 1; max-width: 340px; }
 .table-wrap { overflow-x: auto; }
 .admin-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .admin-table th {
   text-align: left; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
-  color: var(--muted); border-bottom: 2px solid var(--line); padding: 8px 10px 8px 0;
+  color: var(--muted); border-bottom: 2px solid var(--line); padding: 8px 14px 8px 0;
 }
-.admin-table td { padding: 10px 10px 10px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.admin-table td { padding: 10px 14px 10px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.admin-table th:last-child, .admin-table td:last-child { padding-right: 0; }
 .admin-table .num { text-align: right; }
-.table-sub { font-size: 0.78rem; display: block; }
+.table-sub { font-size: 0.78rem; display: block; margin-top: 2px; }
 .row-cancelled { opacity: 0.62; }
 .pill {
   display: inline-block; padding: 2px 10px; border-radius: 999px;
@@ -653,7 +654,7 @@ button:focus-visible,
     print-color-adjust: exact;
   }
 
-  .step-shell { max-width: 100%; margin: 0; padding: 0; }
+  .step-shell { max-width: 190mm; margin: 0 auto; padding: 0; }
 
   .ticket-card {
     box-shadow: none;
