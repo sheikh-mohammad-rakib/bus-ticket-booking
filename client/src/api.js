@@ -17,6 +17,7 @@ export const api = {
   seatmap: (tripId, date) => request(`/trips/${tripId}/seatmap?date=${date}`),
   book: (payload) => request("/bookings", { method: "POST", body: JSON.stringify(payload) }),
   ticket: (pnr) => request(`/bookings/${pnr}`),
+  cancelQuote: (pnr) => request(`/bookings/${pnr}/cancel-quote`),
   cancel: (pnr) => request(`/bookings/${pnr}/cancel`, { method: "POST" }),
   myBookings: (email) => request(`/my-bookings?email=${encodeURIComponent(email)}`),
 };

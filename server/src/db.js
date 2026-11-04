@@ -76,6 +76,12 @@ export async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS idx_bookings_trip_date ON bookings(trip_id, travel_date);
     CREATE INDEX IF NOT EXISTS idx_bookings_email ON bookings(email);
   `);
+
+  // Cancellation charges (added after first launch; idempotent)
+  await pool.query(`
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancellation_fee NUMERIC(10,2);
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS refund_amount NUMERIC(10,2);
+  `);
 }
 
 export async function seedIfEmpty() {

@@ -282,9 +282,41 @@ async function ticketPayload(pnr) {
     contact: { name: bk.contact_name, email: bk.email, phone: bk.phone },
     seats: seats.rows.map((s) => s.seat),
     total_amount: bk.total_amount,
+    cancellation_fee: bk.cancellation_fee,
+    refund_amount: bk.refund_amount,
     created_at: bk.created_at,
   };
 }
+
+// Cancellation charge: 10% of what was paid, at least ৳50, rounded up to ৳50
+function cancellationFee(total) {
+  const n = Number(total) || 0;
+  return Math.max(50, Math.ceil((n * 0.1) / 50) * 50);
+}
+
+// What a cancellation would cost, before confirming
+app.get("/api/bookings/:pnr/cancel-quote", async (req, res) => {
+  const pnr = String(req.params.pnr).toUpperCase();
+  try {
+    const { rows } = await q(
+      "SELECT status, total_amount FROM bookings WHERE pnr = $1",
+      [pnr]
+    );
+    const bk = rows[0];
+    if (!bk) return res.status(404).json({ error: "Booking not found" });
+    if (bk.status === "cancelled")
+      return res.status(409).json({ error: "Already cancelled" });
+    const fee = cancellationFee(bk.total_amount);
+    res.json({
+      fee,
+      refund: Math.max(0, Number(bk.total_amount) - fee),
+      note: "10% of the ticket value, minimum ৳50, rounded up to ৳50 steps",
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Quote failed" });
+  }
+});
 
 // Ticket lookup by PNR
 app.get("/api/bookings/:pnr", async (req, res) => {
@@ -302,11 +334,17 @@ app.get("/api/bookings/:pnr", async (req, res) => {
 app.post("/api/bookings/:pnr/cancel", async (req, res) => {
   const pnr = String(req.params.pnr).toUpperCase();
   try {
-    const { rows } = await q("SELECT id, status FROM bookings WHERE pnr = $1", [pnr]);
+    const { rows } = await q("SELECT id, status, total_amount FROM bookings WHERE pnr = $1", [pnr]);
     const bk = rows[0];
     if (!bk) return res.status(404).json({ error: "Booking not found" });
     if (bk.status === "cancelled") return res.status(409).json({ error: "Already cancelled" });
-    await q("UPDATE bookings SET status = 'cancelled' WHERE id = $1", [bk.id]);
+
+    const fee = cancellationFee(bk.total_amount);
+    const refund = Math.max(0, Number(bk.total_amount) - fee);
+    await q(
+      "UPDATE bookings SET status = 'cancelled', cancellation_fee = $1, refund_amount = $2 WHERE id = $3",
+      [fee, refund, bk.id]
+    );
     res.json(await ticketPayload(pnr));
   } catch (err) {
     console.error(err);

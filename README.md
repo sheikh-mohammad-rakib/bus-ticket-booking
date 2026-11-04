@@ -90,7 +90,8 @@ Checkout is simulated (no real charge):
 | GET    | `/trips/:id/seatmap?date` | layout + sold seats                |
 | POST   | `/bookings`               | books seats transactionally        |
 | GET    | `/bookings/:pnr`          | ticket lookup                      |
-| POST   | `/bookings/:pnr/cancel`   | frees the seats back               |
+| GET    | `/bookings/:pnr/cancel-quote` | shows the cancellation charge before confirming |
+| POST   | `/bookings/:pnr/cancel`   | charges 10% (min ৳50), seats freed |
 | GET    | `/my-bookings?email`      | booking history                    |
 
 ## Design notes
