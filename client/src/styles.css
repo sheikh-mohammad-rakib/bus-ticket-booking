@@ -312,7 +312,7 @@ button:focus-visible,
 .trip-seats--ok { color: var(--muted); }
 .trip-seats--low { color: var(--red); font-weight: 600; }
 .trip-seats--out { color: #9aa39d; }
-.trip-price { font-family: var(--display); font-weight: 700; font-size: 1.45rem; color: var(--green-ink); }
+.trip-price { font-family: var(--display); font-weight: 700; font-size: 1.45rem; color: var(--green-ink); margin-left: auto; text-align: right; min-width: 4.2em; }
 
 /* ============ Stepper ============ */
 .stepper {
@@ -478,7 +478,7 @@ button:focus-visible,
   background: var(--fabric);
 }
 .ticket-main { padding: 22px 30px 26px; }
-.ticket-pnr { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; }
+.ticket-pnr { display: flex; align-items: baseline; gap: 16px; margin-bottom: 14px; }
 .ticket-pnr-label { color: var(--muted); font-size: 0.84rem; }
 .ticket-pnr-value { font-size: 1.45rem; letter-spacing: 0.05em; color: var(--green); }
 .ticket-status { margin-left: auto; font-size: 0.85rem; font-weight: 700; color: var(--green-bright); }
