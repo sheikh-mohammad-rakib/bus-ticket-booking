@@ -10,7 +10,7 @@ Every push to `main` (and every PR) runs CI in GitHub Actions:
 it builds the client, runs the unit tests, boots the API against a real
 Postgres 17 service container, seeds the Bangladesh data, and runs an
 end-to-end smoke suite (`server/scripts/smoke.mjs` — booking, payment
-rejection, cancellation charges). Run the same suites locally with:
+rejection, cancellation charges, role ladder, staff management). Run the same suites locally with:
 
 ```powershell
 cd server
