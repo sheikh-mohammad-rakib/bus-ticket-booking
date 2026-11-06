@@ -86,8 +86,13 @@ export function Ticket() {
 
   if (error) return (
     <div className="step-shell">
-      <p className="error-banner">{error}</p>
-      <Link to="/my-trips" className="btn btn-ghost">Look up by email</Link>
+      <div className="error-page">
+        <p className="error-banner" role="alert">{error}</p>
+        <div className="error-page-actions">
+          <Link to="/" className="btn btn-amber">Back to home</Link>
+          <Link to="/my-trips" className="btn btn-ghost">Look up by email</Link>
+        </div>
+      </div>
     </div>
   );
   if (!ticket) return <p className="muted">Loading ticket…</p>;

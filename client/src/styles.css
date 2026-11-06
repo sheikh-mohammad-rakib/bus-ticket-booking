@@ -234,6 +234,26 @@ button:focus-visible,
 }
 .hint-line, .empty-line { color: var(--muted); font-size: 0.92rem; max-width: 62ch; }
 
+/* ============ Error / not-found page ============ */
+.error-page { padding: 18px 0 56px; }
+.error-page-code {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 4.6rem;
+  line-height: 1;
+  color: var(--green-ink);
+  opacity: 0.16;
+  letter-spacing: 0.04em;
+}
+.error-page h1 {
+  font-size: 2rem;
+  color: var(--green-ink);
+  margin: 10px 0 8px;
+}
+.error-page .muted { margin-bottom: 22px; max-width: 48ch; }
+.error-page-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.error-page .error-banner { margin: 0 0 18px; }
+
 /* ============ Results: paper boarding passes ============ */
 .results { margin-top: 44px; }
 .results-head {
