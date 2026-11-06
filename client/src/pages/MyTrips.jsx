@@ -69,7 +69,7 @@ export function MyTrips() {
       )}
       {error && <p className="error-banner">{error}</p>}
 
-      {searched && !error && bookings.length === 0 && (
+      {!user && searched && !error && bookings.length === 0 && (
         <p className="empty-line">No bookings with {email} yet. <Link to="/">Search a route</Link> to get your first ticket.</p>
       )}
 
