@@ -602,6 +602,17 @@ button:focus-visible,
 .admin-search { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 18px; }
 .admin-search .field-input--slim { flex: 1; max-width: 340px; }
 .staff-sub { margin: -4px 0 16px; }
+.row-form { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 4px; }
+.row-form .field-input--slim, .row-form .field-select.field-input--slim { flex: 1; min-width: 150px; max-width: 230px; }
+.inline-input {
+  width: 96px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 8px;
+  font-size: 0.9rem;
+  background: var(--card);
+  font-family: inherit;
+}
 .staff-form { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 4px; }
 .staff-form .field-input--slim { flex: 1; min-width: 180px; max-width: 260px; }
 .staff-form + .hint-line { margin-top: 6px; }

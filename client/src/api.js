@@ -35,6 +35,13 @@ export const api = {
   adminCreateStaff: (payload) => request("/admin/staff", { method: "POST", body: JSON.stringify(payload) }),
   adminUpdateStaff: (id, patch) => request(`/admin/staff/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   adminRemoveStaff: (id) => request(`/admin/staff/${id}`, { method: "DELETE", body: JSON.stringify({}) }),
+  adminFleet: () => request("/admin/fleet"),
+  adminCreateBus: (payload) => request("/admin/fleet", { method: "POST", body: JSON.stringify(payload) }),
+  adminRemoveBus: (id) => request(`/admin/fleet/${id}`, { method: "DELETE", body: JSON.stringify({}) }),
+  adminTrips: () => request("/admin/trips"),
+  adminCreateTrip: (payload) => request("/admin/trips", { method: "POST", body: JSON.stringify(payload) }),
+  adminUpdateTrip: (id, patch) => request(`/admin/trips/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  adminRemoveTrip: (id) => request(`/admin/trips/${id}`, { method: "DELETE", body: JSON.stringify({}) }),
 };
 
 export const money = (n) =>

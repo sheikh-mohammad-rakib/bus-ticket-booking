@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, money, fmtDate } from "../api.js";
+import { api, money, fmtDate, fmtDuration } from "../api.js";
 import { useAuth } from "../auth.jsx";
 
 function StatCard({ label, value, sub, tone = "" }) {
@@ -29,6 +29,14 @@ export function Admin() {
   const [staffForm, setStaffForm] = useState({ name: "", email: "", password: "" });
   const [busyStaff, setBusyStaff] = useState(null); // null | 'add' | number
   const [staffNote, setStaffNote] = useState("");
+  const [fleet, setFleet] = useState([]);
+  const [trips, setTrips] = useState([]);
+  const [cities, setCities] = useState([]);
+  const [busForm, setBusForm] = useState({ operator: "", name: "", type: "AC Seater", rows: 8, cols: 4 });
+  const [tripForm, setTripForm] = useState({ bus_id: "", from_city_id: "", to_city_id: "", depart_time: "", duration_min: "", price: "" });
+  const [busyFleet, setBusyFleet] = useState(null); // null | 'add-bus' | 'add-trip' | trip id
+  const [editTrip, setEditTrip] = useState(null); // { id, depart_time, duration_min, price }
+  const [fleetNote, setFleetNote] = useState("");
 
   const isAdmin = authed || user?.role === "owner" || user?.role === "counter_operator";
   const isOwner = level === "owner" || user?.role === "owner";
@@ -54,6 +62,9 @@ export function Admin() {
     if (isOwner) {
       api.adminStats().then(setStats).catch((err) => setError(err.message));
       api.adminStaff().then(setStaff).catch((err) => setError(err.message));
+      api.adminFleet().then(setFleet).catch((err) => setFleetNote(err.message));
+      api.adminTrips().then(setTrips).catch((err) => setFleetNote(err.message));
+      api.cities().then(setCities).catch(() => {});
     } else setStats(null);
     api.adminBookings(appliedFilter).then(setRows).catch((err) => setError(err.message));
   }, [isAdmin, isOwner, appliedFilter]);
@@ -101,6 +112,88 @@ export function Admin() {
       })
       .catch((err) => setStaffNote(err.message))
       .finally(() => setBusyStaff(null));
+  }
+
+  const refreshTrips = () =>
+    Promise.all([api.adminTrips().then(setTrips), api.adminFleet().then(setFleet)]);
+
+  function addBus(e) {
+    e.preventDefault();
+    setFleetNote("");
+    setBusyFleet("add-bus");
+    api.adminCreateBus(busForm)
+      .then((b) => {
+        setFleet((f) => [...f, b]);
+        setBusForm({ operator: "", name: "", type: "AC Seater", rows: 8, cols: 4 });
+        setFleetNote(`Added ${b.operator} ${b.name} (${b.type}, ${b.rows}×${b.cols}).`);
+      })
+      .catch((err) => setFleetNote(err.message))
+      .finally(() => setBusyFleet(null));
+  }
+
+  function addTrip(e) {
+    e.preventDefault();
+    setFleetNote("");
+    if (tripForm.from_city_id === tripForm.to_city_id) {
+      setFleetNote("From and to cities must differ.");
+      return;
+    }
+    setBusyFleet("add-trip");
+    api.adminCreateTrip({
+      bus_id: Number(tripForm.bus_id),
+      from_city_id: Number(tripForm.from_city_id),
+      to_city_id: Number(tripForm.to_city_id),
+      depart_time: tripForm.depart_time,
+      duration_min: Number(tripForm.duration_min),
+      price: Number(tripForm.price),
+    })
+      .then(() => refreshTrips())
+      .then(() => {
+        setTripForm({ bus_id: "", from_city_id: "", to_city_id: "", depart_time: "", duration_min: "", price: "" });
+        setFleetNote("Trip added. It now appears in public search.");
+      })
+      .catch((err) => setFleetNote(err.message))
+      .finally(() => setBusyFleet(null));
+  }
+
+  function startTripEdit(t) {
+    setEditTrip({ id: t.id, depart_time: t.depart_time, duration_min: String(t.duration_min), price: String(Number(t.price)) });
+  }
+
+  function saveTripEdit() {
+    setFleetNote("");
+    setBusyFleet(editTrip.id);
+    api.adminUpdateTrip(editTrip.id, {
+      depart_time: editTrip.depart_time,
+      duration_min: Number(editTrip.duration_min),
+      price: Number(editTrip.price),
+    })
+      .then(() => refreshTrips())
+      .then(() => setFleetNote("Trip updated. Existing bookings keep the price they paid."))
+      .catch((err) => setFleetNote(err.message))
+      .finally(() => setBusyFleet(null));
+    setEditTrip(null);
+  }
+
+  function removeTrip(t) {
+    setFleetNote("");
+    setBusyFleet(t.id);
+    api.adminRemoveTrip(t.id)
+      .then(() => refreshTrips())
+      .then(() => setFleetNote(`Removed ${t.from_city} → ${t.to_city} ${t.depart_time}.`))
+      .catch((err) => setFleetNote(err.message))
+      .finally(() => setBusyFleet(null));
+  }
+
+  function removeBus(b) {
+    setFleetNote("");
+    setBusyFleet(b.id);
+    api.adminRemoveBus(b.id)
+      .then(() => api.adminFleet())
+      .then(setFleet)
+      .then(() => setFleetNote(`Removed ${b.operator} ${b.name}.`))
+      .catch((err) => setFleetNote(err.message))
+      .finally(() => setBusyFleet(null));
   }
 
   function login(e) {
@@ -305,6 +398,262 @@ export function Admin() {
               </button>
             </form>
             {staffNote && <p className="hint-line">{staffNote}</p>}
+          </section>
+
+          <section className="panel">
+            <h2>Fleet</h2>
+            <p className="muted staff-sub">
+              Coaches available to schedule. Seat count comes from the layout (rows × cols).
+            </p>
+            {fleet.length === 0 ? (
+              <p className="muted">No buses yet.</p>
+            ) : (
+              <div className="table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Operator</th>
+                      <th>Bus</th>
+                      <th>Type</th>
+                      <th className="num">Seats</th>
+                      <th className="num">Trips</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fleet.map((b) => (
+                      <tr key={b.id}>
+                        <td>{b.operator}</td>
+                        <td>{b.name}</td>
+                        <td>{b.type}</td>
+                        <td className="mono num">{b.rows * b.cols}</td>
+                        <td className="mono num">{b.trips}</td>
+                        <td>
+                          <button
+                            className="btn btn-ghost btn--small"
+                            onClick={() => removeBus(b)}
+                            disabled={busyFleet === b.id || b.trips > 0}
+                            title={b.trips > 0 ? "Has scheduled trips — remove them first" : "Remove this bus"}
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <form className="row-form" onSubmit={addBus}>
+              <input
+                className="field-input field-input--slim"
+                placeholder="Operator (e.g. Green Line)"
+                value={busForm.operator}
+                onChange={(e) => setBusForm({ ...busForm, operator: e.target.value })}
+                required
+              />
+              <input
+                className="field-input field-input--slim"
+                placeholder="Bus name (e.g. Volvo 9600)"
+                value={busForm.name}
+                onChange={(e) => setBusForm({ ...busForm, name: e.target.value })}
+                required
+              />
+              <select
+                className="field-select field-input--slim"
+                value={busForm.type}
+                onChange={(e) => setBusForm({ ...busForm, type: e.target.value })}
+              >
+                {["AC Seater", "Sleeper", "AC Sleeper", "Non-AC"].map((t) => <option key={t}>{t}</option>)}
+              </select>
+              <input
+                className="field-input field-input--slim"
+                type="number"
+                min={4}
+                max={12}
+                value={busForm.rows}
+                onChange={(e) => setBusForm({ ...busForm, rows: e.target.value })}
+                title="Seat rows"
+                required
+              />
+              <select
+                className="field-select field-input--slim"
+                value={busForm.cols}
+                onChange={(e) => setBusForm({ ...busForm, cols: e.target.value })}
+                title="Seats per row"
+              >
+                <option value={4}>4 across</option>
+                <option value={5}>5 across</option>
+              </select>
+              <button className="btn btn-amber" type="submit" disabled={busyFleet === "add-bus"}>
+                {busyFleet === "add-bus" ? "Adding…" : "Add bus"}
+              </button>
+            </form>
+          </section>
+
+          <section className="panel">
+            <h2>Trips</h2>
+            <p className="muted staff-sub">
+              Scheduled services shown in public search. Trips run daily; bookings carry the date.
+              Editing price or times affects future bookings only — paid tickets keep their price.
+            </p>
+            {trips.length === 0 ? (
+              <p className="muted">No trips scheduled yet.</p>
+            ) : (
+              <div className="table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Route</th>
+                      <th>Bus</th>
+                      <th>Departs</th>
+                      <th>Duration</th>
+                      <th>Price</th>
+                      <th className="num">Sold</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trips.map((t) => {
+                      const editing = editTrip?.id === t.id;
+                      return (
+                        <tr key={t.id}>
+                          <td>{t.from_city} → {t.to_city}</td>
+                          <td>{t.operator}<br /><span className="muted table-sub">{t.bus_name} · {t.type}</span></td>
+                          <td>
+                            {editing ? (
+                              <input
+                                className="inline-input"
+                                type="time"
+                                value={editTrip.depart_time}
+                                onChange={(e) => setEditTrip({ ...editTrip, depart_time: e.target.value })}
+                              />
+                            ) : (
+                              <span className="mono">{t.depart_time}</span>
+                            )}
+                          </td>
+                          <td>
+                            {editing ? (
+                              <input
+                                className="inline-input"
+                                type="number"
+                                min={30}
+                                max={1440}
+                                step={5}
+                                value={editTrip.duration_min}
+                                onChange={(e) => setEditTrip({ ...editTrip, duration_min: e.target.value })}
+                              />
+                            ) : (
+                              fmtDuration(t.duration_min)
+                            )}
+                          </td>
+                          <td>
+                            {editing ? (
+                              <input
+                                className="inline-input"
+                                type="number"
+                                min={50}
+                                max={100000}
+                                step={50}
+                                value={editTrip.price}
+                                onChange={(e) => setEditTrip({ ...editTrip, price: e.target.value })}
+                              />
+                            ) : (
+                              <span className="mono">{money(t.price)}</span>
+                            )}
+                          </td>
+                          <td className="mono num">{t.seats_sold}</td>
+                          <td>
+                            {editing ? (
+                              <>
+                                <button className="btn btn-amber btn--small" onClick={saveTripEdit} disabled={busyFleet === t.id}>Save</button>{" "}
+                                <button className="btn btn-ghost btn--small" onClick={() => setEditTrip(null)}>Cancel</button>
+                              </>
+                            ) : (
+                              <>
+                                <button className="btn btn-ghost btn--small" onClick={() => startTripEdit(t)} disabled={busyFleet === t.id}>Edit</button>{" "}
+                                <button
+                                  className="btn btn-ghost btn--small"
+                                  onClick={() => removeTrip(t)}
+                                  disabled={busyFleet === t.id || t.seats_sold > 0}
+                                  title={t.seats_sold > 0 ? "Has booking history — cannot be removed" : "Remove this trip"}
+                                >
+                                  Remove
+                                </button>
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <form className="row-form" onSubmit={addTrip}>
+              <select
+                className="field-select field-input--slim"
+                value={tripForm.bus_id}
+                onChange={(e) => setTripForm({ ...tripForm, bus_id: e.target.value })}
+                required
+              >
+                <option value="">Bus…</option>
+                {fleet.map((b) => (
+                  <option key={b.id} value={b.id}>{b.operator} {b.name}</option>
+                ))}
+              </select>
+              <select
+                className="field-select field-input--slim"
+                value={tripForm.from_city_id}
+                onChange={(e) => setTripForm({ ...tripForm, from_city_id: e.target.value })}
+                required
+              >
+                <option value="">From…</option>
+                {cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <select
+                className="field-select field-input--slim"
+                value={tripForm.to_city_id}
+                onChange={(e) => setTripForm({ ...tripForm, to_city_id: e.target.value })}
+                required
+              >
+                <option value="">To…</option>
+                {cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <input
+                className="field-input field-input--slim"
+                type="time"
+                value={tripForm.depart_time}
+                onChange={(e) => setTripForm({ ...tripForm, depart_time: e.target.value })}
+                required
+              />
+              <input
+                className="field-input field-input--slim"
+                type="number"
+                min={30}
+                max={1440}
+                step={5}
+                placeholder="Minutes"
+                value={tripForm.duration_min}
+                onChange={(e) => setTripForm({ ...tripForm, duration_min: e.target.value })}
+                required
+              />
+              <input
+                className="field-input field-input--slim"
+                type="number"
+                min={50}
+                max={100000}
+                step={50}
+                placeholder="Price ৳"
+                value={tripForm.price}
+                onChange={(e) => setTripForm({ ...tripForm, price: e.target.value })}
+                required
+              />
+              <button className="btn btn-amber" type="submit" disabled={busyFleet === "add-trip" || !fleet.length}>
+                {busyFleet === "add-trip" ? "Adding…" : "Add trip"}
+              </button>
+            </form>
+            {fleetNote && <p className="hint-line">{fleetNote}</p>}
           </section>
         </>
       )}

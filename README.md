@@ -140,6 +140,13 @@ account; login endpoints are rate-limited):
 | POST   | `/admin/staff`                   | create counter operator (or owner) — **owner only** |
 | PATCH  | `/admin/staff/:id`               | disable/enable, optional password reset — **owner only** |
 | DELETE | `/admin/staff/:id`               | remove account (guards: not self, not last owner, no booking history) — **owner only** |
+| GET    | `/admin/fleet`                   | buses with scheduled-trip counts — **owner only** |
+| POST   | `/admin/fleet`                   | add a coach (operator, name, type, rows×cols) — **owner only** |
+| DELETE | `/admin/fleet/:id`               | remove a bus with no scheduled trips — **owner only** |
+| GET    | `/admin/trips`                   | all scheduled trips with seats-sold — **owner only** |
+| POST   | `/admin/trips`                   | schedule a trip (bus, route, time, duration, price) — **owner only** |
+| PATCH  | `/admin/trips/:id`               | change departure time, duration or price — **owner only** |
+| DELETE | `/admin/trips/:id`               | remove a trip with no bookings; paid tickets keep their price — **owner only** |
 
 ## Accounts & authorization
 
@@ -187,10 +194,14 @@ Three roles form an access ladder — `passenger < counter_operator < owner`:
   check-in is rejected with 409. No financial numbers are exposed.
 - **Owner console** (owner, or the operator password): everything the counter
   sees plus revenue and seats-sold cards, cancellation stats with fees/refunds,
-  best-selling routes, and the **staff panel** — create counter operators,
-  disable/enable accounts (disabled accounts lose console access on their next
-  request and can't sign in), reset passwords, and remove no-history accounts.
-  Guards prevent disabling/removing yourself or the last active owner.
+  best-selling routes, the **staff panel** (create counter operators,
+  disable/enable accounts — disabled accounts lose console access on their next
+  request and can't sign in — reset passwords, remove no-history accounts;
+  guards prevent disabling/removing yourself or the last active owner), and
+  **fleet & trip management** — add/remove coaches, schedule daily services
+  (bus + route + departure time + duration + fare), and edit them. Trips with
+  bookings are protected from removal, and editing a price never changes what
+  already-paid tickets cost.
 - The operator-password session is an HMAC-signed HttpOnly cookie scoped to
   `/api/admin`, expiring after 12 hours; staff accounts enter directly.
 

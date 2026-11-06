@@ -350,6 +350,58 @@ async function main() {
   check("owner removes staff account", removed.status === 200 && removed.body?.removed === true);
   const staffAfter = await ownerAs("GET", "/api/admin/staff");
   check("removed staff no longer listed", staffAfter.status === 200 && !staffAfter.body.some((u) => u.id === newStaff.body.id));
+
+  // --- fleet & trip management (owner only) ---
+  const counterFleet = await counter("GET", "/api/admin/fleet");
+  check("operator denied fleet panel (403)", counterFleet.status === 403);
+  const counterTripsList = await counter("GET", "/api/admin/trips");
+  check("operator denied trips panel (403)", counterTripsList.status === 403);
+
+  const fleetList = await ownerAs("GET", "/api/admin/fleet");
+  check(
+    "owner sees fleet",
+    fleetList.status === 200 && Array.isArray(fleetList.body) && fleetList.body.length >= 1 &&
+      typeof fleetList.body[0].trips === "number",
+    `${fleetList.body?.length ?? 0} buses`
+  );
+
+  // Create a bus, then a trip on it, edit it, and remove it
+  const badBus = await ownerAs("POST", "/api/admin/fleet", { operator: "Smoke Line", name: "Test Coach", type: "Hovercraft", rows: 8, cols: 4 });
+  check("invalid bus type rejected (400)", badBus.status === 400);
+  const newBus = await ownerAs("POST", "/api/admin/fleet", { operator: "Smoke Line", name: "Test Coach", type: "AC Seater", rows: 4, cols: 4 });
+  check("owner creates bus (201)", newBus.status === 201 && newBus.body?.rows === 4 && newBus.body?.cols === 4);
+  const dupBus = await ownerAs("POST", "/api/admin/fleet", { operator: "", name: "x", type: "AC Seater", rows: 8, cols: 4 });
+  check("bus without operator rejected (400)", dupBus.status === 400);
+
+  const cityList = cities.body || [];
+  const dco = cityList[0]?.id;
+  const lone = cityList.find((c) => c.id !== dco)?.id;
+  if (!dco || !lone) throw new Error("seeded cities missing for fleet tests");
+  const badTrip = await ownerAs("POST", "/api/admin/trips", { bus_id: newBus.body.id, from_city_id: dco, to_city_id: dco, depart_time: "06:30", duration_min: 300, price: 700 });
+  check("same-city trip rejected (400)", badTrip.status === 400);
+  const badTime = await ownerAs("POST", "/api/admin/trips", { bus_id: newBus.body.id, from_city_id: dco, to_city_id: lone, depart_time: "25:99", duration_min: 300, price: 700 });
+  check("invalid departure time rejected (400)", badTime.status === 400);
+  const newTrip = await ownerAs("POST", "/api/admin/trips", { bus_id: newBus.body.id, from_city_id: dco, to_city_id: lone, depart_time: "06:30", duration_min: 300, price: 700 });
+  check("owner creates trip (201)", newTrip.status === 201 && Number.isInteger(newTrip.body?.id));
+  const tripsList = await ownerAs("GET", "/api/admin/trips");
+  check(
+    "owner sees trips incl. the new one",
+    tripsList.status === 200 && tripsList.body.some((t) => t.id === newTrip.body.id && t.operator === "Smoke Line"),
+    `${tripsList.body?.length ?? 0} trips`
+  );
+
+  const editTrip = await ownerAs("PATCH", `/api/admin/trips/${newTrip.body.id}`, { price: 750, depart_time: "06:45" });
+  check("owner edits trip price/time", editTrip.status === 200 && editTrip.body?.updated === true);
+  const badEdit = await ownerAs("PATCH", `/api/admin/trips/${newTrip.body.id}`, { price: -5 });
+  check("negative price rejected (400)", badEdit.status === 400);
+
+  // A trip with a booking cannot be removed
+  const bookedTrip = await ownerAs("DELETE", `/api/admin/trips/${trip.id}`);
+  check("trip with booking history protected (409)", bookedTrip.status === 409);
+  const delTrip = await ownerAs("DELETE", `/api/admin/trips/${newTrip.body.id}`);
+  check("owner removes unused trip", delTrip.status === 200 && delTrip.body?.removed === true);
+  const delBus = await ownerAs("DELETE", `/api/admin/fleet/${newBus.body.id}`);
+  check("owner removes unused bus", delBus.status === 200 && delBus.body?.removed === true);
 }
 
 main().catch((err) => {

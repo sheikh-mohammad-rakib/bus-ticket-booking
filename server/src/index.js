@@ -759,6 +759,190 @@ app.delete("/api/admin/staff/:id", requireOwner, async (req, res) => {
   }
 });
 
+// ---------- fleet & trip management (owner only) ----------
+const BUS_TYPES = ["AC Seater", "Sleeper", "AC Sleeper", "Non-AC"];
+
+app.get("/api/admin/fleet", requireOwner, async (_req, res) => {
+  try {
+    const { rows } = await q(`
+      SELECT b.id, b.operator, b.name, b.type, b.rows, b.cols,
+             COUNT(t.id)::int AS trips
+      FROM buses b
+      LEFT JOIN trips t ON t.bus_id = b.id
+      GROUP BY b.id
+      ORDER BY b.operator, b.name
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not load the fleet" });
+  }
+});
+
+app.post("/api/admin/fleet", requireOwner, async (req, res) => {
+  const operator = String(req.body?.operator || "").trim().slice(0, 60);
+  const name = String(req.body?.name || "").trim().slice(0, 80);
+  const type = String(req.body?.type || "");
+  const rows = parseInt(req.body?.rows, 10);
+  const cols = parseInt(req.body?.cols, 10);
+
+  if (!operator) return res.status(400).json({ error: "Operator name is required" });
+  if (!name) return res.status(400).json({ error: "Bus name is required" });
+  if (!BUS_TYPES.includes(type))
+    return res.status(400).json({ error: `Type must be one of: ${BUS_TYPES.join(", ")}` });
+  if (!Number.isInteger(rows) || rows < 4 || rows > 12)
+    return res.status(400).json({ error: "Rows must be between 4 and 12" });
+  if (cols !== 4 && cols !== 5)
+    return res.status(400).json({ error: "Cols must be 4 or 5" });
+
+  try {
+    const { rows: out } = await q(
+      "INSERT INTO buses (operator, name, type, rows, cols) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+      [operator, name, type, rows, cols]
+    );
+    res.status(201).json({ ...out[0], trips: 0 });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not create the bus" });
+  }
+});
+
+app.get("/api/admin/trips", requireOwner, async (_req, res) => {
+  try {
+    const { rows } = await q(`
+      SELECT t.id, t.depart_time, t.duration_min, t.price,
+             cf.id AS from_city_id, ct.id AS to_city_id,
+             cf.name AS from_city, ct.name AS to_city,
+             b.id AS bus_id, b.operator, b.name AS bus_name, b.type, b.rows, b.cols,
+             s.n AS seats_sold
+      FROM trips t
+      JOIN buses b  ON b.id = t.bus_id
+      JOIN cities cf ON cf.id = t.from_city_id
+      JOIN cities ct ON ct.id = t.to_city_id
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS n
+        FROM bookings bk
+        JOIN booking_seats bs2 ON bs2.booking_id = bk.id
+        WHERE bk.trip_id = t.id AND bk.status = 'confirmed'
+      ) s ON true
+      ORDER BY cf.name, ct.name, t.depart_time
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not load trips" });
+  }
+});
+
+app.post("/api/admin/trips", requireOwner, async (req, res) => {
+  const busId = parseInt(req.body?.bus_id, 10);
+  const fromId = parseInt(req.body?.from_city_id, 10);
+  const toId = parseInt(req.body?.to_city_id, 10);
+  const depart = String(req.body?.depart_time || "");
+  const duration = parseInt(req.body?.duration_min, 10);
+  const price = Number(req.body?.price);
+
+  if (!Number.isInteger(busId)) return res.status(400).json({ error: "Pick a bus" });
+  if (!Number.isInteger(fromId) || !Number.isInteger(toId))
+    return res.status(400).json({ error: "Pick both cities" });
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(depart))
+    return res.status(400).json({ error: "Departure time must be HH:MM (24-hour)" });
+  if (!Number.isInteger(duration) || duration < 30 || duration > 1440)
+    return res.status(400).json({ error: "Duration must be between 30 and 1440 minutes" });
+  if (!Number.isFinite(price) || price <= 0 || price > 100000)
+    return res.status(400).json({ error: "Price must be a positive amount" });
+
+  try {
+    const bus = await q("SELECT id FROM buses WHERE id = $1", [busId]);
+    if (!bus.rows[0]) return res.status(400).json({ error: "Unknown bus" });
+    const cities = await q("SELECT id, name FROM cities WHERE id IN ($1, $2)", [fromId, toId]);
+    if (cities.rows.length !== 2) return res.status(400).json({ error: "Unknown city" });
+    if (fromId === toId) return res.status(400).json({ error: "From and to cities must differ" });
+
+    const { rows: out } = await q(
+      `INSERT INTO trips (bus_id, from_city_id, to_city_id, depart_time, duration_min, price)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [busId, fromId, toId, depart, duration, price]
+    );
+    res.status(201).json({ id: out[0].id });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not create the trip" });
+  }
+});
+
+app.patch("/api/admin/trips/:id", requireOwner, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Bad trip id" });
+  const { depart_time, duration_min, price } = req.body || {};
+
+  try {
+    const { rows: existing } = await q("SELECT id FROM trips WHERE id = $1", [id]);
+    if (!existing[0]) return res.status(404).json({ error: "Trip not found" });
+
+    if (depart_time != null) {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(depart_time)))
+        return res.status(400).json({ error: "Departure time must be HH:MM (24-hour)" });
+    }
+    if (duration_min != null) {
+      if (!Number.isInteger(duration_min) || duration_min < 30 || duration_min > 1440)
+        return res.status(400).json({ error: "Duration must be between 30 and 1440 minutes" });
+    }
+    if (price != null) {
+      const p = Number(price);
+      if (!Number.isFinite(p) || p <= 0 || p > 100000)
+        return res.status(400).json({ error: "Price must be a positive amount" });
+    }
+
+    await q(
+      `UPDATE trips SET
+         depart_time = COALESCE($1, depart_time),
+         duration_min = COALESCE($2, duration_min),
+         price = COALESCE($3, price)
+       WHERE id = $4`,
+      [depart_time ?? null, duration_min ?? null, price ?? null, id]
+    );
+    res.json({ updated: true, id });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not update the trip" });
+  }
+});
+
+app.delete("/api/admin/trips/:id", requireOwner, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Bad trip id" });
+  try {
+    const { rows } = await q("SELECT id FROM trips WHERE id = $1", [id]);
+    if (!rows[0]) return res.status(404).json({ error: "Trip not found" });
+    const used = await q("SELECT COUNT(*)::int AS n FROM bookings WHERE trip_id = $1", [id]);
+    if (used.rows[0].n > 0)
+      return res.status(409).json({ error: "This trip has booking history and cannot be removed" });
+    await q("DELETE FROM trips WHERE id = $1", [id]);
+    res.json({ removed: true, id });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not remove the trip" });
+  }
+});
+
+app.delete("/api/admin/fleet/:id", requireOwner, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Bad bus id" });
+  try {
+    const { rows } = await q("SELECT id FROM buses WHERE id = $1", [id]);
+    if (!rows[0]) return res.status(404).json({ error: "Bus not found" });
+    const used = await q("SELECT COUNT(*)::int AS n FROM trips WHERE bus_id = $1", [id]);
+    if (used.rows[0].n > 0)
+      return res.status(409).json({ error: "This bus has scheduled trips — remove them first" });
+    await q("DELETE FROM buses WHERE id = $1", [id]);
+    res.json({ removed: true, id });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not remove the bus" });
+  }
+});
+
 // Access ladder: counter operator < owner. The operator password (if used)
 // grants owner level; staff accounts carry a role.
 function operatorLevel(req) {
