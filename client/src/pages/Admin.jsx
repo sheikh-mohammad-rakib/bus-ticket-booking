@@ -131,11 +131,11 @@ export function Admin() {
       <div className="step-shell">
         <header className="step-head">
           <h1>Operator console</h1>
-          <p className="step-sub muted">Operator access only. Sign in with the admin password.</p>
+          <p className="step-sub muted">Operator access only. Sign in with the operator password.</p>
         </header>
         <form className="modal auth-form" onSubmit={login} style={{ maxWidth: 420 }}>
           <label className="field">
-            <span className="field-label">Admin password</span>
+            <span className="field-label">Operator password</span>
             <input
               type="password"
               value={password}

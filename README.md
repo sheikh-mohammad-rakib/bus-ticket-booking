@@ -15,7 +15,7 @@ rejection, cancellation charges, role ladder, staff management). Run the same su
 ```powershell
 cd server
 npm run unit   # pure-logic tests (fee math, Luhn, session codec) — no server needed
-npm test       # smoke suite; expects the API running on :4000
+npm test       # smoke suite; expects the API running on :4000 (override with SMOKE_BASE_URL)
 ```
 
 ## Run it (dev)
@@ -38,6 +38,14 @@ The server configures via `DATABASE_URL` (default
 automatically on startup and the sample Bangladesh data is seeded only when the
 trips table is empty. To wipe and reseed: `docker compose down -v`,
 `docker compose up -d db`, then restart the API.
+
+If :4000 is unavailable on your machine (Windows reserves ranges around
+Hyper-V/WinNAT), run the API elsewhere and point the dev proxy at it:
+
+```powershell
+# server:  $env:PORT = '4100'; npm run dev
+# client:  $env:API_TARGET = 'http://localhost:4100'; npm run dev
+```
 
 ## Deploy
 
@@ -72,8 +80,19 @@ Docker app only: `docker build -t riders .` and point `DATABASE_URL` anywhere.
 **VPS (DigitalOcean etc.):** run Postgres in Docker or a managed instance,
 `DATABASE_URL=postgres://...` then `npm run build` and
 `pm2 start "node server/src/index.js" --name riders` behind nginx/caddy
-proxying to `localhost:4000`. (Note: I can't verify from here — this session's
-research gateway is unsigned-in, so treat provider details as standard practice.)
+proxying to `localhost:4000`. (Provider details below are standard practice;
+verify current specifics with your provider.)
+
+### Environment variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/riders` | Postgres connection string |
+| `PORT` | `4000` | API listen port (platforms inject their own) |
+| `ADMIN_PASSWORD` | `riders-admin` | operator password opening the console at owner level — set a real one anywhere users are reachable |
+| `AUTH_SECRET` | derived from `ADMIN_PASSWORD` | HMAC key for user session cookies; setting it keeps sessions stable across password changes |
+| `CORS_ORIGIN` | `http://localhost:5173,http://127.0.0.1:5173` | comma-separated allowlist for cross-origin API calls |
+| `SMOKE_BASE_URL` | `http://localhost:4000` | base URL the smoke suite targets (set to `:4100` etc. when testing a non-default port) |
 
 ### Not a fit
 
@@ -108,7 +127,7 @@ Checkout is simulated (no real charge):
 | POST   | `/bookings/:pnr/cancel`   | charges 10% (min ৳50), seats freed |
 | GET    | `/my-bookings?email`      | booking history                    |
 
-Operator console (auth required — admin password session, or a signed-in staff
+Operator console (auth required — operator-password session, or a signed-in staff
 account; login endpoints are rate-limited):
 
 | Method | Path                             | Notes                                        |
@@ -154,6 +173,9 @@ Three roles form an access ladder — `passenger < counter_operator < owner`:
   `demote` to send back to passenger).
 - **Operator password**: still opens the console at owner level (`ADMIN_PASSWORD`,
   demo default `riders-admin` — set a real one anywhere users are reachable).
+- **Staff management**: the owner panel creates/disables/resets/removes staff
+  accounts (see `/admin` routes above). Disabled accounts lose console access
+  immediately and cannot sign in; the schema keeps an `active` flag on users.
 
 ## Operator console
 
