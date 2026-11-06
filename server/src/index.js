@@ -177,7 +177,7 @@ async function attachUser(req, _res, next) {
   const token = parseCookies(req)[USER_COOKIE] || (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   const userId = verifyUserSession(token);
   if (userId) {
-    const { rows } = await q("SELECT id, name, email, role FROM users WHERE id = $1", [userId]);
+    const { rows } = await q("SELECT id, name, email, role FROM users WHERE id = $1 AND active", [userId]);
     if (rows[0]) req.user = rows[0];
   }
   next();
@@ -579,12 +579,13 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase().slice(0, 120);
   const password = String(req.body?.password || "");
   try {
-    const { rows } = await q("SELECT id, name, email, role, password_hash FROM users WHERE email = $1", [email]);
+    const { rows } = await q("SELECT id, name, email, role, active, password_hash FROM users WHERE email = $1", [email]);
     const user = rows[0];
     // One generic message: don't reveal whether the email exists
     const hash = user?.password_hash || "$2a$10$invalidsaltinvalidsaltinvalidsaltinvalidsaltinvalidsalthe";
     const ok = await bcrypt.compare(password, hash);
     if (!user || !ok) return res.status(401).json({ error: "Wrong email or password" });
+    if (!user.active) return res.status(403).json({ error: "This account has been disabled. Contact the operator." });
     setSessionCookie(req, res, user.id);
     res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } });
   } catch (err) {
@@ -630,6 +631,132 @@ app.get("/api/admin/me", (req, res) => {
   const level = operatorLevel(req);
   if (!level) return res.status(401).json({ error: "Admin access required" });
   res.json({ admin: true, level });
+});
+
+// ---------- staff management (owner only) ----------
+app.get("/api/admin/staff", requireOwner, async (_req, res) => {
+  try {
+    const { rows } = await q(
+      `SELECT id, name, email, role, active, created_at
+       FROM users
+       WHERE role IN ('counter_operator', 'owner')
+       ORDER BY created_at ASC`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not load staff" });
+  }
+});
+
+app.post("/api/admin/staff", requireOwner, async (req, res) => {
+  const name = String(req.body?.name || "").trim().slice(0, 80);
+  const email = String(req.body?.email || "").trim().toLowerCase().slice(0, 120);
+  const password = String(req.body?.password || "");
+  const role = req.body?.role === "owner" ? "owner" : "counter_operator";
+
+  if (!name) return res.status(400).json({ error: "Name is required" });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+    return res.status(400).json({ error: "A valid email is required" });
+  if (password.length < 8)
+    return res.status(400).json({ error: "Password must be at least 8 characters" });
+  if (password.length > 100)
+    return res.status(400).json({ error: "Password is too long" });
+
+  try {
+    const existing = await q("SELECT id FROM users WHERE email = $1", [email]);
+    if (existing.rows[0]) return res.status(409).json({ error: "An account with this email already exists" });
+    const hash = await bcrypt.hash(password, 10);
+    const { rows } = await q(
+      "INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING id, name, email, role, active",
+      [name, email, hash, role]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not create the account" });
+  }
+});
+
+// Disable / re-enable a staff account, optionally reset their password
+app.patch("/api/admin/staff/:id", requireOwner, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Bad staff id" });
+  const { active } = req.body || {};
+  const newPassword = req.body?.password;
+
+  try {
+    const { rows } = await q("SELECT id, role FROM users WHERE id = $1", [id]);
+    const target = rows[0];
+    if (!target) return res.status(404).json({ error: "Staff member not found" });
+    if (target.role !== "counter_operator" && target.role !== "owner")
+      return res.status(400).json({ error: "Only staff accounts can be managed here" });
+
+    if (active === false) {
+      // Never lock the console: keep the current owner signed in and keep at
+      // least one active owner in the system.
+      if (target.id === req.user?.id)
+        return res.status(409).json({ error: "You cannot disable your own account" });
+      if (target.role === "owner") {
+        const { rows: owners } = await q(
+          "SELECT COUNT(*)::int AS n FROM users WHERE role = 'owner' AND active AND id <> $1",
+          [id]
+        );
+        if (owners[0].n === 0)
+          return res.status(409).json({ error: "You cannot disable the last active owner" });
+      }
+    }
+
+    if (typeof active === "boolean") {
+      await q("UPDATE users SET active = $1 WHERE id = $2", [active, id]);
+    }
+    if (newPassword != null) {
+      if (newPassword.length < 8)
+        return res.status(400).json({ error: "Password must be at least 8 characters" });
+      if (newPassword.length > 100)
+        return res.status(400).json({ error: "Password is too long" });
+      await q("UPDATE users SET password_hash = $1 WHERE id = $2", [await bcrypt.hash(newPassword, 10), id]);
+    }
+
+    const { rows: out } = await q(
+      "SELECT id, name, email, role, active FROM users WHERE id = $1",
+      [id]
+    );
+    res.json(out[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not update the account" });
+  }
+});
+
+app.delete("/api/admin/staff/:id", requireOwner, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Bad staff id" });
+  try {
+    const { rows } = await q("SELECT id, role FROM users WHERE id = $1", [id]);
+    const target = rows[0];
+    if (!target) return res.status(404).json({ error: "Staff member not found" });
+    if (target.role !== "counter_operator" && target.role !== "owner")
+      return res.status(400).json({ error: "Only staff accounts can be managed here" });
+    if (target.id === req.user?.id)
+      return res.status(409).json({ error: "You cannot remove your own account" });
+    if (target.role === "owner") {
+      const { rows: owners } = await q(
+        "SELECT COUNT(*)::int AS n FROM users WHERE role = 'owner' AND active AND id <> $1",
+        [id]
+      );
+      if (owners[0].n === 0)
+        return res.status(409).json({ error: "You cannot remove the last active owner" });
+    }
+    const history = await q("SELECT COUNT(*)::int AS n FROM bookings WHERE user_id = $1", [id]);
+    if (history.rows[0].n > 0)
+      return res.status(409).json({ error: "This account has booking history — disable it instead" });
+    await q("DELETE FROM users WHERE id = $1", [id]);
+    res.json({ removed: true, id });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not remove the account" });
+  }
 });
 
 // Access ladder: counter operator < owner. The operator password (if used)

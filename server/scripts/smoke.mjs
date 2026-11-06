@@ -284,23 +284,72 @@ async function main() {
     ledgerAfter.status === 200 && Array.isArray(ledgerAfter.body) && !!ledgerAfter.body[0]?.checked_in_at
   );
 
+  const ownerFetchPlain = async (method, path, body) =>
+    fetch(BASE + path, { method, headers: { Cookie: cookie, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined })
+      .then(async (resp) => ({ status: resp.status, body: await resp.json().catch(() => null) }));
+
   const owner = await staffLogin("owner@riders.demo", "riders-demo-1").catch(() => null);
+  // Either the seeded demo owner account or the operator-password cookie: both are owner level
+  const ownerAs = owner || ownerFetchPlain;
   if (owner) {
-    // Seeded demo owner account exists (fresh DBs get one at boot) — verify it
-    const ownerMe = await owner("GET", "/api/admin/me");
+    const ownerMe = await ownerAs("GET", "/api/admin/me");
     check("owner authenticates at owner level", ownerMe.status === 200 && ownerMe.body?.level === "owner");
-    const ownerStats = await owner("GET", "/api/admin/stats");
-    check("owner sees financial stats", ownerStats.status === 200 && "revenue" in (ownerStats.body || {}));
   } else {
-    // No demo owner in this database: the operator-password cookie is owner level
-    const ownerFetch = async (method, path) =>
-      fetch(BASE + path, { method, headers: { Cookie: cookie } })
-        .then(async (resp) => ({ status: resp.status, body: await resp.json().catch(() => null) }));
-    const ownerMe = await ownerFetch("GET", "/api/admin/me");
+    const ownerMe = await ownerAs("GET", "/api/admin/me");
     check("owner level authenticates via password cookie", ownerMe.status === 200 && ownerMe.body?.level === "owner");
-    const ownerStats = await ownerFetch("GET", "/api/admin/stats");
-    check("owner sees financial stats", ownerStats.status === 200 && "revenue" in (ownerStats.body || {}));
   }
+  const ownerStats = await ownerAs("GET", "/api/admin/stats");
+  check("owner sees financial stats", ownerStats.status === 200 && "revenue" in (ownerStats.body || {}));
+
+  // --- staff management (owner only) ---
+  const counterStaff = await counter("GET", "/api/admin/staff");
+  check("operator denied staff panel (403)", counterStaff.status === 403);
+
+  const staffList = await ownerAs("GET", "/api/admin/staff");
+  check(
+    "owner sees staff list",
+    staffList.status === 200 && Array.isArray(staffList.body) &&
+      staffList.body.every((u) => u.role === "owner" || u.role === "counter_operator"),
+    `${staffList.body?.length ?? 0} staff accounts`
+  );
+
+  // Create a fresh counter operator, then put its account through disable/enable
+  const semail = `smoke.staff.${Date.now() % 100000}@example.com`;
+  const spw = "counter-demo-77";
+  const newStaff = await ownerAs("POST", "/api/admin/staff", {
+    name: "Smoke Counter", email: semail, password: spw,
+  });
+  check("owner creates counter operator (201)", newStaff.status === 201 && newStaff.body?.role === "counter_operator" && newStaff.body?.active === true);
+  const dupStaff = await ownerAs("POST", "/api/admin/staff", {
+    name: "Smoke Counter", email: semail, password: spw,
+  });
+  check("duplicate staff email rejected (409)", dupStaff.status === 409);
+
+  const op = await staffLogin(semail, spw);
+  const opLevel = await op("GET", "/api/admin/me");
+  check("new operator authenticates at operator level", opLevel.status === 200 && opLevel.body?.level === "operator");
+
+  const disabled = await ownerAs("PATCH", `/api/admin/staff/${newStaff.body.id}`, { active: false });
+  check("owner disables operator", disabled.status === 200 && disabled.body?.active === false);
+  const opLockedOut = await op("GET", "/api/admin/me");
+  check("disabled operator's live session loses access (401)", opLockedOut.status === 401);
+  const disabledLogin = await api("POST", "/api/auth/login", { email: semail, password: spw });
+  check("disabled operator cannot sign in (403)", disabledLogin.status === 403);
+
+  const enabled = await ownerAs("PATCH", `/api/admin/staff/${newStaff.body.id}`, { active: true });
+  check("owner re-enables operator", enabled.status === 200 && enabled.body?.active === true);
+  const resetPw = await ownerAs("PATCH", `/api/admin/staff/${newStaff.body.id}`, { password: "fresh-passcode-11" });
+  check("owner resets operator password", resetPw.status === 200);
+  const loginNewPw = await api("POST", "/api/auth/login", { email: semail, password: "fresh-passcode-11" });
+  check("operator signs in with reset password", loginNewPw.status === 200);
+  const badReset = await ownerAs("PATCH", `/api/admin/staff/${newStaff.body.id}`, { password: "short" });
+  check("too-short staff password rejected (400)", badReset.status === 400);
+
+  // Clean up the test account so demo databases stay tidy
+  const removed = await ownerAs("DELETE", `/api/admin/staff/${newStaff.body.id}`);
+  check("owner removes staff account", removed.status === 200 && removed.body?.removed === true);
+  const staffAfter = await ownerAs("GET", "/api/admin/staff");
+  check("removed staff no longer listed", staffAfter.status === 200 && !staffAfter.body.some((u) => u.id === newStaff.body.id));
 }
 
 main().catch((err) => {

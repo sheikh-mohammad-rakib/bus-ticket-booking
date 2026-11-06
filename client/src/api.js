@@ -31,6 +31,10 @@ export const api = {
   adminStats: () => request("/admin/stats"),
   adminBookings: (q = "") => request(`/admin/bookings${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   adminCheckIn: (pnr) => request(`/admin/bookings/${pnr}/checkin`, { method: "POST" }),
+  adminStaff: () => request("/admin/staff"),
+  adminCreateStaff: (payload) => request("/admin/staff", { method: "POST", body: JSON.stringify(payload) }),
+  adminUpdateStaff: (id, patch) => request(`/admin/staff/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  adminRemoveStaff: (id) => request(`/admin/staff/${id}`, { method: "DELETE", body: JSON.stringify({}) }),
 };
 
 export const money = (n) =>

@@ -108,6 +108,9 @@ export async function ensureSchema() {
 
   // Boarding stamp for counter check-in
   await pool.query("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS checked_in_at TIMESTAMPTZ");
+
+  // Soft-disable flag for staff accounts (owner panel)
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE");
 }
 
 // Demo/CI convenience: guarantee staff accounts exist for each console level —
