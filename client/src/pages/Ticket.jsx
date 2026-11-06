@@ -4,7 +4,7 @@ import { api, money, fmtDuration, fmtDate } from "../api.js";
 import { bnCity } from "../bn.js";
 import { Stepper } from "../components/Header.jsx";
 
-function CancelModal({ ticket, onClose, onConfirm, busy, quote, quoteError }) {
+function CancelModal({ ticket, onClose, onConfirm, busy, quote, quoteError, confirmError }) {
   useEffect(() => {
     function onKey(e) {
       if (e.key === "Escape") onClose();
@@ -30,6 +30,7 @@ function CancelModal({ ticket, onClose, onConfirm, busy, quote, quoteError }) {
         </p>
 
         {quoteError && <p className="error-banner" role="alert">{quoteError}</p>}
+        {confirmError && <p className="error-banner" role="alert">{confirmError}</p>}
 
         {quote && (
           <dl className="modal-charges">
@@ -68,6 +69,9 @@ export function Ticket() {
   const [modalOpen, setModalOpen] = useState(false);
   const [quote, setQuote] = useState(null);
   const [quoteError, setQuoteError] = useState("");
+  // Failures while the ticket is on screen (e.g. a cancel that didn't go
+  // through) show a banner — they must not clobber the ticket itself.
+  const [actionError, setActionError] = useState("");
 
   useEffect(() => {
     if (!ticket) {
@@ -105,12 +109,13 @@ export function Ticket() {
 
   function cancel() {
     setBusy(true);
+    setActionError("");
     api.cancel(ticket.pnr)
       .then((t) => {
         setTicket(t);
         setModalOpen(false);
       })
-      .catch((err) => setError(err.message))
+      .catch((err) => setActionError(err.message))
       .finally(() => setBusy(false));
   }
 
@@ -174,6 +179,8 @@ export function Ticket() {
         {ticket.contact.name}, {ticket.contact.email} — {ticket.contact.phone}
       </p>
 
+      {actionError && <p className="error-banner no-print" role="alert">{actionError}</p>}
+
       {!cancelled && (
         <div className="ticket-actions no-print">
           <button className="btn btn-amber" onClick={() => window.print()}>Print ticket</button>
@@ -193,6 +200,7 @@ export function Ticket() {
           busy={busy}
           quote={quote}
           quoteError={quoteError}
+          confirmError={actionError}
         />
       )}
       <div className="ticket-actions no-print">
