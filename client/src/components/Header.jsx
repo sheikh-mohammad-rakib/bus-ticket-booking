@@ -1,8 +1,10 @@
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
+import { useLang } from "../lang.jsx";
 
 export function Header() {
   const { user, signOut } = useAuth();
+  const { lang, setLang, t } = useLang();
   const { pathname } = useLocation();
 
   return (
@@ -12,21 +14,29 @@ export function Header() {
         Riders
       </Link>
       <nav className="site-nav">
-        <Link to="/" className="nav-link">Search buses</Link>
-        <Link to="/my-trips" className="nav-link">My trips</Link>
-        <Link to="/admin" className="nav-link nav-link--quiet">Admin</Link>
+        <Link to="/" className="nav-link">{t("Search buses")}</Link>
+        <Link to="/my-trips" className="nav-link">{t("My trips")}</Link>
+        <Link to="/admin" className="nav-link nav-link--quiet">{t("Admin")}</Link>
+        <button
+          className="lang-toggle"
+          onClick={() => setLang(lang === "bn" ? "en" : "bn")}
+          title="English ⇄ বাংলা"
+          aria-label={lang === "bn" ? "Switch to English" : "সাইটটি বাংলায় দেখান"}
+        >
+          {lang === "bn" ? "EN" : "বাংলা"}
+        </button>
         {user ? (
           <span className="user-chip">
             <span className="user-name" title={user.email}>
               {user.name.split(" ")[0]}
               {(user.role === "owner" || user.role === "admin" || user.role === "counter_operator") && (
-                <span className="role-badge">{user.role === "counter_operator" ? "counter" : "owner"}</span>
+                <span className="role-badge">{user.role === "counter_operator" ? t("counter") : t("owner")}</span>
               )}
             </span>
-            <button className="link-btn" onClick={signOut}>Sign out</button>
+            <button className="link-btn" onClick={signOut}>{t("Sign out")}</button>
           </span>
         ) : pathname !== "/login" ? (
-          <Link to="/login" state={{ from: pathname }} className="btn btn-amber btn--small">Sign in</Link>
+          <Link to="/login" state={{ from: pathname }} className="btn btn-amber btn--small">{t("Sign in")}</Link>
         ) : null}
       </nav>
     </header>
@@ -34,9 +44,10 @@ export function Header() {
 }
 
 export function Stepper({ step }) {
-  const steps = ["Seats", "Passengers", "Payment", "Ticket"];
+  const { t } = useLang();
+  const steps = [t("Seats"), t("Passengers"), t("Payment"), t("Ticket")];
   return (
-    <ol className="stepper no-print" aria-label="Booking progress">
+    <ol className="stepper no-print" aria-label={t("Booking progress")}>
       {steps.map((label, i) => (
         <li
           key={label}

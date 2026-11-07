@@ -2,8 +2,10 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { api, fmtDate } from "../api.js";
 import { useAuth } from "../auth.jsx";
+import { useLang } from "../lang.jsx";
 
 export function MyTrips() {
+  const { t } = useLang();
   const { user, ready } = useAuth();
   const [email, setEmail] = useState("");
   const [searched, setSearched] = useState(false);
@@ -39,15 +41,16 @@ export function MyTrips() {
       <header className="step-head">
         {user ? (
           <>
-            <h1>My trips</h1>
-            <p className="step-sub muted">Signed in as {user.email} — showing your bookings.</p>
+            <h1>{t("My trips")}</h1>
+            <p className="step-sub muted">{t("Signed in as {email} — showing your bookings.", { email: user.email })}</p>
           </>
         ) : (
           <>
-            <h1>My trips</h1>
+            <h1>{t("My trips")}</h1>
             <p className="step-sub muted">
-              Guest tickets: enter the email you booked with.{" "}
-              <Link to="/login" state={{ from: "/my-trips" }}>Sign in</Link> instead to always see them here.
+              {t("Guest tickets: enter the email you booked with.")}{" "}
+              <Link to="/login" state={{ from: "/my-trips" }}>{t("Sign in")}</Link>{" "}
+              {t("to see all your tickets here, every time.")}
             </p>
           </>
         )}
@@ -56,21 +59,21 @@ export function MyTrips() {
       {!user && (
         <form className="search-bar search-bar--plain" onSubmit={load}>
           <label className="field">
-            <span className="field-label">Email</span>
+            <span className="field-label">{t("Email")}</span>
             <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
           </label>
           <button type="submit" className="btn btn-amber" disabled={busy}>
-            {busy ? "Looking…" : "Find bookings"}
+            {busy ? t("Looking…") : t("Find bookings")}
           </button>
         </form>
       )}
       {user && bookings.length === 0 && !busy && !error && (
-        <p className="empty-line">No bookings on your account yet. <Link to="/">Search a route</Link> to get your first ticket.</p>
+        <p className="empty-line">{t("No bookings on your account yet.")} <Link to="/">{t("Search a route")}</Link> {t("to get your first ticket.")}</p>
       )}
       {error && <p className="error-banner">{error}</p>}
 
       {!user && searched && !error && bookings.length === 0 && (
-        <p className="empty-line">No bookings with {email} yet. <Link to="/">Search a route</Link> to get your first ticket.</p>
+        <p className="empty-line">{t("No bookings with {email} yet.", { email })} <Link to="/">{t("Search a route")}</Link> {t("to get your first ticket.")}</p>
       )}
 
       {bookings.map((bk) => (
@@ -89,12 +92,12 @@ export function MyTrips() {
             </div>
           </div>
           <div className="trip-meet">
-            <span className={`chip ${bk.status === "cancelled" ? "chip-cancelled" : "chip-type"}`}>{bk.status}</span>
+            <span className={`chip ${bk.status === "cancelled" ? "chip-cancelled" : "chip-type"}`}>{t(bk.status === "cancelled" ? "Cancelled" : "Confirmed")}</span>
             <span className="trip-operator"><strong>{bk.bus.operator}</strong> {bk.bus.name}</span>
           </div>
           <div className="trip-buy">
             <span className="trip-price mono">{bk.pnr}</span>
-            <Link to={`/ticket/${bk.pnr}`} className="btn btn-amber">View ticket</Link>
+            <Link to={`/ticket/${bk.pnr}`} className="btn btn-amber">{t("View ticket")}</Link>
           </div>
         </article>
       ))}

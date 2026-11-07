@@ -217,6 +217,15 @@ Three roles form an access ladder — `passenger < counter_operator < owner`:
   Rajshahi, Barishal, Cox's Bazar, Rangpur, Cumilla, Mymensingh), familiar
   operators (Green Line, Hanif, Shohag, Ena, Shyamoli, Royal Coach), fares in
   ৳50 steps, and +880 phone formatting.
+- **English ⇄ বাংলা toggle** in the header, persisted per browser
+  (`riders_lang` in localStorage). The toggle covers the whole app — search,
+  seat map, booking, ticket, cancels, My trips, sign-in and the owner console —
+  with বাংলা city names on headline routes and Bengali numerals on ৳ fares,
+  dates and durations (৳১,২৫০, শুক্র, ৬ নভেম্বর, ৫ঘ ৪৫মি). The English copy is
+  its own translation key (`client/src/bn.js`), so a missing Bangla entry can
+  never blank out the UI; server error messages stay in English. The site fonts
+  (Hind Siliguri body, Baloo Da 2 display) are Bengali-native, so both modes
+  render in the same design.
 
 ## Security notes
 

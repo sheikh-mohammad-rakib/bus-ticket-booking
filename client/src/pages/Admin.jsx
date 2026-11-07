@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, money, fmtDate, fmtDuration } from "../api.js";
 import { useAuth } from "../auth.jsx";
+import { useLang } from "../lang.jsx";
 
 function StatCard({ label, value, sub, tone = "" }) {
   return (
@@ -13,6 +14,7 @@ function StatCard({ label, value, sub, tone = "" }) {
 }
 
 export function Admin() {
+  const { t } = useLang();
   const { user, signOut } = useAuth();
   const [checked, setChecked] = useState(false);
   const [authed, setAuthed] = useState(false);
@@ -87,7 +89,7 @@ export function Admin() {
       .then((row) => {
         setStaff((s) => [...s, row]);
         setStaffForm({ name: "", email: "", password: "" });
-        setStaffNote(`Created account for ${row.name} (${row.email}).`);
+        setStaffNote(t("Created account for {name} ({email}).", { name: row.name, email: row.email }));
       })
       .catch((err) => setStaffNote(err.message))
       .finally(() => setBusyStaff(null));
@@ -108,7 +110,7 @@ export function Admin() {
     api.adminRemoveStaff(row.id)
       .then(() => {
         setStaff((s) => s.filter((r) => r.id !== row.id));
-        setStaffNote(`Removed ${row.name} (${row.email}).`);
+        setStaffNote(t("Removed {name} ({email}).", { name: row.name, email: row.email }));
       })
       .catch((err) => setStaffNote(err.message))
       .finally(() => setBusyStaff(null));
@@ -125,7 +127,7 @@ export function Admin() {
       .then((b) => {
         setFleet((f) => [...f, b]);
         setBusForm({ operator: "", name: "", type: "AC Seater", rows: 8, cols: 4 });
-        setFleetNote(`Added ${b.operator} ${b.name} (${b.type}, ${b.rows}×${b.cols}).`);
+        setFleetNote(t("Added {operator} {name} ({type}, {rows}×{cols}).", { operator: b.operator, name: b.name, type: t(b.type), rows: b.rows, cols: b.cols }));
       })
       .catch((err) => setFleetNote(err.message))
       .finally(() => setBusyFleet(null));
@@ -135,7 +137,7 @@ export function Admin() {
     e.preventDefault();
     setFleetNote("");
     if (tripForm.from_city_id === tripForm.to_city_id) {
-      setFleetNote("From and to cities must differ.");
+      setFleetNote(t("From and to cities must differ."));
       return;
     }
     setBusyFleet("add-trip");
@@ -150,7 +152,7 @@ export function Admin() {
       .then(() => refreshTrips())
       .then(() => {
         setTripForm({ bus_id: "", from_city_id: "", to_city_id: "", depart_time: "", duration_min: "", price: "" });
-        setFleetNote("Trip added. It now appears in public search.");
+        setFleetNote(t("Trip added. It now appears in public search."));
       })
       .catch((err) => setFleetNote(err.message))
       .finally(() => setBusyFleet(null));
@@ -169,18 +171,18 @@ export function Admin() {
       price: Number(editTrip.price),
     })
       .then(() => refreshTrips())
-      .then(() => setFleetNote("Trip updated. Existing bookings keep the price they paid."))
+      .then(() => setFleetNote(t("Trip updated. Existing bookings keep the price they paid.")))
       .catch((err) => setFleetNote(err.message))
       .finally(() => setBusyFleet(null));
     setEditTrip(null);
   }
 
-  function removeTrip(t) {
+  function removeTrip(trip) {
     setFleetNote("");
-    setBusyFleet(t.id);
-    api.adminRemoveTrip(t.id)
+    setBusyFleet(trip.id);
+    api.adminRemoveTrip(trip.id)
       .then(() => refreshTrips())
-      .then(() => setFleetNote(`Removed ${t.from_city} → ${t.to_city} ${t.depart_time}.`))
+      .then(() => setFleetNote(t("Removed {from} → {to} {time}.", { from: trip.from_city, to: trip.to_city, time: trip.depart_time })))
       .catch((err) => setFleetNote(err.message))
       .finally(() => setBusyFleet(null));
   }
@@ -191,7 +193,7 @@ export function Admin() {
     api.adminRemoveBus(b.id)
       .then(() => api.adminFleet())
       .then(setFleet)
-      .then(() => setFleetNote(`Removed ${b.operator} ${b.name}.`))
+      .then(() => setFleetNote(t("Removed {operator} {name}.", { operator: b.operator, name: b.name })))
       .catch((err) => setFleetNote(err.message))
       .finally(() => setBusyFleet(null));
   }
@@ -201,6 +203,7 @@ export function Admin() {
     setError("");
     setBusy(true);
     api.adminLogin(password)
+      .then(() => auth0()) // re-read the level — the operator password grants owner
       .then(() => {
         setAuthed(true);
         setPassword("");
@@ -211,9 +214,9 @@ export function Admin() {
 
   function logout() {
     if (user?.role === "admin") {
-      signOut().catch(() => {}).finally(() => setAuthed(false));
+      signOut().catch(() => {}).finally(() => { setAuthed(false); setLevel(null); });
     } else {
-      api.adminLogout().catch(() => {}).finally(() => setAuthed(false));
+      api.adminLogout().catch(() => {}).finally(() => { setAuthed(false); setLevel(null); });
     }
   }
 
@@ -223,12 +226,12 @@ export function Admin() {
     return (
       <div className="step-shell">
         <header className="step-head">
-          <h1>Operator console</h1>
-          <p className="step-sub muted">Operator access only. Sign in with the operator password.</p>
+          <h1>{t("Operator console")}</h1>
+          <p className="step-sub muted">{t("Operator access only. Sign in with the operator password.")}</p>
         </header>
         <form className="modal auth-form" onSubmit={login} style={{ maxWidth: 420 }}>
           <label className="field">
-            <span className="field-label">Operator password</span>
+            <span className="field-label">{t("Operator password")}</span>
             <input
               type="password"
               value={password}
@@ -239,7 +242,7 @@ export function Admin() {
           </label>
           {error && <p className="error-banner" role="alert">{error}</p>}
           <button className="btn btn-amber" type="submit" disabled={busy || !password}>
-            {busy ? "Signing in…" : "Sign in"}
+            {busy ? t("Signing in…") : t("Sign in")}
           </button>
         </form>
       </div>
@@ -254,12 +257,12 @@ export function Admin() {
   return (
     <div className="step-shell">
       <header className="step-head">
-        <h1>{isOwner ? "Owner console" : "Counter console"}</h1>
+        <h1>{isOwner ? t("Owner console") : t("Counter console")}</h1>
         <p className="step-sub muted">
           {isOwner
-            ? "Live figures from the bookings ledger."
-            : "Lookup, check-in and cancellations at the counter. Financials are visible to the owner only."}{" "}
-          <button className="link-btn" onClick={logout}>Sign out</button>
+            ? t("Live figures from the bookings ledger.")
+            : t("Lookup, check-in and cancellations at the counter. Financials are visible to the owner only.")}{" "}
+          <button className="link-btn" onClick={logout}>{t("Sign out")}</button>
         </p>
       </header>
 
@@ -268,27 +271,27 @@ export function Admin() {
       {isOwner && (
         <>
           <div className="stat-grid">
-            <StatCard label="Bookings today" value={s.booked_today ?? "—"} />
-            <StatCard label="Seats sold" value={s.seats_sold ?? "—"} sub={`${s.confirmed ?? 0} confirmed`} />
-            <StatCard label="Revenue" value={s.revenue == null ? "—" : money(s.revenue)} tone="stat-green" />
+            <StatCard label={t("Bookings today")} value={s.booked_today ?? "—"} />
+            <StatCard label={t("Seats sold")} value={s.seats_sold ?? "—"} sub={t("{n} confirmed", { n: s.confirmed ?? 0 })} />
+            <StatCard label={t("Revenue")} value={s.revenue == null ? "—" : money(s.revenue)} tone="stat-green" />
             <StatCard
-              label="Cancellations"
+              label={t("Cancellations")}
               value={`${s.cancelled ?? "—"} (${cancelRate}%)`}
-              sub={`fees ${s.cancel_fees ? money(s.cancel_fees) : "৳0"} · refunds ${s.refunds ? money(s.refunds) : "৳0"}`}
+              sub={t("fees {a} · refunds {b}", { a: s.cancel_fees ? money(s.cancel_fees) : "৳0", b: s.refunds ? money(s.refunds) : "৳0" })}
               tone="stat-red"
             />
           </div>
 
           {s.top_routes?.length > 0 && (
             <section className="panel">
-              <h2>Best-selling routes</h2>
+              <h2>{t("Best-selling routes")}</h2>
               <ul className="route-board">
                 {s.top_routes.map((r) => (
                   <li key={`${r.from_city}-${r.to_city}`}>
                     <span className="route-name">
                       {r.from_city} → {r.to_city}
                     </span>
-                    <span className="route-seats mono">{r.seats} seats</span>
+                    <span className="route-seats mono">{t("{n} seats", { n: r.seats })}</span>
                     <span className="route-revenue mono">{money(r.revenue)}</span>
                   </li>
                 ))}
@@ -297,23 +300,23 @@ export function Admin() {
           )}
 
           <section className="panel">
-            <h2>Staff</h2>
+            <h2>{t("Staff")}</h2>
             <p className="muted staff-sub">
-              Counter operators can look up bookings, check in passengers and cancel tickets. Disabled accounts lose access immediately.
+              {t("Counter operators can look up bookings, check in passengers and cancel tickets. Disabled accounts lose access immediately.")}
             </p>
 
             {staff.length === 0 ? (
-              <p className="muted">No staff accounts yet.</p>
+              <p className="muted">{t("No staff accounts yet.")}</p>
             ) : (
               <div className="table-wrap">
                 <table className="admin-table">
                   <thead>
                     <tr>
-                      <th>Name</th>
-                      <th>Email</th>
-                      <th>Role</th>
-                      <th>Joined</th>
-                      <th>Status</th>
+                      <th>{t("Name")}</th>
+                      <th>{t("Email")}</th>
+                      <th>{t("Role")}</th>
+                      <th>{t("Joined")}</th>
+                      <th>{t("Status")}</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -324,14 +327,14 @@ export function Admin() {
                         <td className="mono">{r.email}</td>
                         <td>
                           <span className={`pill ${r.role === "owner" ? "pill-green" : "chip-type"}`}>
-                            {r.role === "owner" ? "owner" : "counter"}
+                            {r.role === "owner" ? t("owner") : t("counter")}
                           </span>
                         </td>
                         <td className="mono">{fmtDate(String(r.created_at).slice(0, 10))}</td>
                         <td>
                           {r.active
-                            ? <span className="pill pill-green">active</span>
-                            : <span className="pill chip-cancelled">disabled</span>}
+                            ? <span className="pill pill-green">{t("active")}</span>
+                            : <span className="pill chip-cancelled">{t("disabled")}</span>}
                         </td>
                         <td>
                           {r.active ? (
@@ -340,7 +343,7 @@ export function Admin() {
                               onClick={() => toggleStaff(r)}
                               disabled={busyStaff === r.id}
                             >
-                              Disable
+                              {t("Disable")}
                             </button>
                           ) : (
                             <button
@@ -348,16 +351,16 @@ export function Admin() {
                               onClick={() => toggleStaff(r)}
                               disabled={busyStaff === r.id}
                             >
-                              Enable
+                              {t("Enable")}
                             </button>
                           )}{" "}
                           <button
                             className="btn btn-ghost btn--small"
                             onClick={() => removeStaff(r)}
                             disabled={busyStaff === r.id || (r.role === "owner" && r.id === user?.id)}
-                            title={r.role === "owner" && r.id === user?.id ? "You cannot remove your own account" : "Remove account"}
+                            title={r.role === "owner" && r.id === user?.id ? t("You cannot remove your own account") : t("Remove account")}
                           >
-                            Remove
+                            {t("Remove")}
                           </button>
                         </td>
                       </tr>
@@ -370,7 +373,7 @@ export function Admin() {
             <form className="staff-form" onSubmit={addStaff}>
               <input
                 className="field-input field-input--slim"
-                placeholder="Full name"
+                placeholder={t("Full name")}
                 value={staffForm.name}
                 onChange={(e) => setStaffForm({ ...staffForm, name: e.target.value })}
                 required
@@ -378,7 +381,7 @@ export function Admin() {
               <input
                 className="field-input field-input--slim"
                 type="email"
-                placeholder="work email"
+                placeholder={t("work email")}
                 value={staffForm.email}
                 onChange={(e) => setStaffForm({ ...staffForm, email: e.target.value })}
                 required
@@ -386,7 +389,7 @@ export function Admin() {
               <input
                 className="field-input field-input--slim"
                 type="password"
-                placeholder="Password (min 8 chars)"
+                placeholder={t("Password (min 8 chars)")}
                 value={staffForm.password}
                 onChange={(e) => setStaffForm({ ...staffForm, password: e.target.value })}
                 minLength={8}
@@ -394,29 +397,29 @@ export function Admin() {
                 autoComplete="new-password"
               />
               <button className="btn btn-amber" type="submit" disabled={busyStaff === "add"}>
-                {busyStaff === "add" ? "Adding…" : "Add counter operator"}
+                {busyStaff === "add" ? t("Adding…") : t("Add counter operator")}
               </button>
             </form>
             {staffNote && <p className="hint-line">{staffNote}</p>}
           </section>
 
           <section className="panel">
-            <h2>Fleet</h2>
+            <h2>{t("Fleet")}</h2>
             <p className="muted staff-sub">
-              Coaches available to schedule. Seat count comes from the layout (rows × cols).
+              {t("Coaches available to schedule. Seat count comes from the layout (rows × cols).")}
             </p>
             {fleet.length === 0 ? (
-              <p className="muted">No buses yet.</p>
+              <p className="muted">{t("No buses yet.")}</p>
             ) : (
               <div className="table-wrap">
                 <table className="admin-table">
                   <thead>
                     <tr>
-                      <th>Operator</th>
-                      <th>Bus</th>
-                      <th>Type</th>
-                      <th className="num">Seats</th>
-                      <th className="num">Trips</th>
+                      <th>{t("Operator")}</th>
+                      <th>{t("Bus")}</th>
+                      <th>{t("Type")}</th>
+                      <th className="num">{t("Seats")}</th>
+                      <th className="num">{t("Trips")}</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -433,9 +436,9 @@ export function Admin() {
                             className="btn btn-ghost btn--small"
                             onClick={() => removeBus(b)}
                             disabled={busyFleet === b.id || b.trips > 0}
-                            title={b.trips > 0 ? "Has scheduled trips — remove them first" : "Remove this bus"}
+                            title={b.trips > 0 ? t("Has scheduled trips — remove them first") : t("Remove this bus")}
                           >
-                            Remove
+                            {t("Remove")}
                           </button>
                         </td>
                       </tr>
@@ -447,14 +450,14 @@ export function Admin() {
             <form className="row-form" onSubmit={addBus}>
               <input
                 className="field-input field-input--slim"
-                placeholder="Operator (e.g. Green Line)"
+                placeholder={t("Operator (e.g. Green Line)")}
                 value={busForm.operator}
                 onChange={(e) => setBusForm({ ...busForm, operator: e.target.value })}
                 required
               />
               <input
                 className="field-input field-input--slim"
-                placeholder="Bus name (e.g. Volvo 9600)"
+                placeholder={t("Bus name (e.g. Volvo 9600)")}
                 value={busForm.name}
                 onChange={(e) => setBusForm({ ...busForm, name: e.target.value })}
                 required
@@ -464,7 +467,7 @@ export function Admin() {
                 value={busForm.type}
                 onChange={(e) => setBusForm({ ...busForm, type: e.target.value })}
               >
-                {["AC Seater", "Sleeper", "AC Sleeper", "Non-AC"].map((t) => <option key={t}>{t}</option>)}
+                {["AC Seater", "Sleeper", "AC Sleeper", "Non-AC"].map((ty) => <option key={ty} value={ty}>{t(ty)}</option>)}
               </select>
               <input
                 className="field-input field-input--slim"
@@ -473,53 +476,52 @@ export function Admin() {
                 max={12}
                 value={busForm.rows}
                 onChange={(e) => setBusForm({ ...busForm, rows: e.target.value })}
-                title="Seat rows"
+                title={t("Seat rows")}
                 required
               />
               <select
                 className="field-select field-input--slim"
                 value={busForm.cols}
                 onChange={(e) => setBusForm({ ...busForm, cols: e.target.value })}
-                title="Seats per row"
+                title={t("Seats per row")}
               >
-                <option value={4}>4 across</option>
-                <option value={5}>5 across</option>
+                <option value={4}>{t("4 across")}</option>
+                <option value={5}>{t("5 across")}</option>
               </select>
               <button className="btn btn-amber" type="submit" disabled={busyFleet === "add-bus"}>
-                {busyFleet === "add-bus" ? "Adding…" : "Add bus"}
+                {busyFleet === "add-bus" ? t("Adding…") : t("Add bus")}
               </button>
             </form>
           </section>
 
           <section className="panel">
-            <h2>Trips</h2>
+            <h2>{t("Trips")}</h2>
             <p className="muted staff-sub">
-              Scheduled services shown in public search. Trips run daily; bookings carry the date.
-              Editing price or times affects future bookings only — paid tickets keep their price.
+              {t("Scheduled services shown in public search. Trips run daily; bookings carry the date. Editing price or times affects future bookings only — paid tickets keep their price.")}
             </p>
             {trips.length === 0 ? (
-              <p className="muted">No trips scheduled yet.</p>
+              <p className="muted">{t("No trips scheduled yet.")}</p>
             ) : (
               <div className="table-wrap">
                 <table className="admin-table">
                   <thead>
                     <tr>
-                      <th>Route</th>
-                      <th>Bus</th>
-                      <th>Departs</th>
-                      <th>Duration</th>
-                      <th>Price</th>
-                      <th className="num">Sold</th>
+                      <th>{t("Route")}</th>
+                      <th>{t("Bus")}</th>
+                      <th>{t("Departs")}</th>
+                      <th>{t("Duration")}</th>
+                      <th>{t("Price")}</th>
+                      <th className="num">{t("Sold")}</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {trips.map((t) => {
-                      const editing = editTrip?.id === t.id;
+                    {trips.map((tr) => {
+                      const editing = editTrip?.id === tr.id;
                       return (
-                        <tr key={t.id}>
-                          <td>{t.from_city} → {t.to_city}</td>
-                          <td>{t.operator}<br /><span className="muted table-sub">{t.bus_name} · {t.type}</span></td>
+                        <tr key={tr.id}>
+                          <td>{tr.from_city} → {tr.to_city}</td>
+                          <td>{tr.operator}<br /><span className="muted table-sub">{tr.bus_name} · {tr.type}</span></td>
                           <td>
                             {editing ? (
                               <input
@@ -529,7 +531,7 @@ export function Admin() {
                                 onChange={(e) => setEditTrip({ ...editTrip, depart_time: e.target.value })}
                               />
                             ) : (
-                              <span className="mono">{t.depart_time}</span>
+                              <span className="mono">{tr.depart_time}</span>
                             )}
                           </td>
                           <td>
@@ -544,7 +546,7 @@ export function Admin() {
                                 onChange={(e) => setEditTrip({ ...editTrip, duration_min: e.target.value })}
                               />
                             ) : (
-                              fmtDuration(t.duration_min)
+                              fmtDuration(tr.duration_min)
                             )}
                           </td>
                           <td>
@@ -559,26 +561,26 @@ export function Admin() {
                                 onChange={(e) => setEditTrip({ ...editTrip, price: e.target.value })}
                               />
                             ) : (
-                              <span className="mono">{money(t.price)}</span>
+                              <span className="mono">{money(tr.price)}</span>
                             )}
                           </td>
-                          <td className="mono num">{t.seats_sold}</td>
+                          <td className="mono num">{tr.seats_sold}</td>
                           <td>
                             {editing ? (
                               <>
-                                <button className="btn btn-amber btn--small" onClick={saveTripEdit} disabled={busyFleet === t.id}>Save</button>{" "}
-                                <button className="btn btn-ghost btn--small" onClick={() => setEditTrip(null)}>Cancel</button>
+                                <button className="btn btn-amber btn--small" onClick={saveTripEdit} disabled={busyFleet === tr.id}>{t("Save")}</button>{" "}
+                                <button className="btn btn-ghost btn--small" onClick={() => setEditTrip(null)}>{t("Cancel")}</button>
                               </>
                             ) : (
                               <>
-                                <button className="btn btn-ghost btn--small" onClick={() => startTripEdit(t)} disabled={busyFleet === t.id}>Edit</button>{" "}
+                                <button className="btn btn-ghost btn--small" onClick={() => startTripEdit(tr)} disabled={busyFleet === tr.id}>{t("Edit")}</button>{" "}
                                 <button
                                   className="btn btn-ghost btn--small"
-                                  onClick={() => removeTrip(t)}
-                                  disabled={busyFleet === t.id || t.seats_sold > 0}
-                                  title={t.seats_sold > 0 ? "Has booking history — cannot be removed" : "Remove this trip"}
+                                  onClick={() => removeTrip(tr)}
+                                  disabled={busyFleet === tr.id || tr.seats_sold > 0}
+                                  title={tr.seats_sold > 0 ? t("Has booking history — cannot be removed") : t("Remove this trip")}
                                 >
-                                  Remove
+                                  {t("Remove")}
                                 </button>
                               </>
                             )}
@@ -597,7 +599,7 @@ export function Admin() {
                 onChange={(e) => setTripForm({ ...tripForm, bus_id: e.target.value })}
                 required
               >
-                <option value="">Bus…</option>
+                <option value="">{t("Bus…")}</option>
                 {fleet.map((b) => (
                   <option key={b.id} value={b.id}>{b.operator} {b.name}</option>
                 ))}
@@ -608,7 +610,7 @@ export function Admin() {
                 onChange={(e) => setTripForm({ ...tripForm, from_city_id: e.target.value })}
                 required
               >
-                <option value="">From…</option>
+                <option value="">{t("From…")}</option>
                 {cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               <select
@@ -617,7 +619,7 @@ export function Admin() {
                 onChange={(e) => setTripForm({ ...tripForm, to_city_id: e.target.value })}
                 required
               >
-                <option value="">To…</option>
+                <option value="">{t("To…")}</option>
                 {cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               <input
@@ -633,7 +635,7 @@ export function Admin() {
                 min={30}
                 max={1440}
                 step={5}
-                placeholder="Minutes"
+                placeholder={t("Minutes")}
                 value={tripForm.duration_min}
                 onChange={(e) => setTripForm({ ...tripForm, duration_min: e.target.value })}
                 required
@@ -644,13 +646,13 @@ export function Admin() {
                 min={50}
                 max={100000}
                 step={50}
-                placeholder="Price ৳"
+                placeholder={t("Price ৳")}
                 value={tripForm.price}
                 onChange={(e) => setTripForm({ ...tripForm, price: e.target.value })}
                 required
               />
               <button className="btn btn-amber" type="submit" disabled={busyFleet === "add-trip" || !fleet.length}>
-                {busyFleet === "add-trip" ? "Adding…" : "Add trip"}
+                {busyFleet === "add-trip" ? t("Adding…") : t("Add trip")}
               </button>
             </form>
             {fleetNote && <p className="hint-line">{fleetNote}</p>}
@@ -659,7 +661,7 @@ export function Admin() {
       )}
 
       <section className="panel">
-        <h2>Bookings</h2>
+        <h2>{t("Bookings")}</h2>
         <form
           className="admin-search"
           onSubmit={(e) => {
@@ -669,28 +671,32 @@ export function Admin() {
         >
           <input
             className="field-input field-input--slim"
-            placeholder="Find by PNR, email, name or phone"
+            placeholder={t("Find by PNR, email, name or phone")}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
-          <button className="btn btn-ghost" type="submit">Search</button>
+          <button className="btn btn-ghost" type="submit">{t("Search")}</button>
         </form>
 
         {rows.length === 0 ? (
-          <p className="muted">No bookings{appliedFilter ? ` matching “${appliedFilter}”` : " yet"}.</p>
+          <p className="muted">
+            {appliedFilter
+              ? t("No bookings matching “{q}”.", { q: appliedFilter })
+              : t("No bookings yet.")}
+          </p>
         ) : (
           <div className="table-wrap">
             <table className="admin-table">
               <thead>
                 <tr>
                   <th>PNR</th>
-                  <th>Route</th>
-                  <th>Seats</th>
-                  <th>Date</th>
-                  <th>Passenger</th>
-                  <th className="num">Amount</th>
-                  <th>Status</th>
-                  <th>Boarding</th>
+                  <th>{t("Route")}</th>
+                  <th>{t("Seats")}</th>
+                  <th>{t("Date")}</th>
+                  <th>{t("Passenger")}</th>
+                  <th className="num">{t("Amount")}</th>
+                  <th>{t("Status")}</th>
+                  <th>{t("Boarding")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -704,25 +710,25 @@ export function Admin() {
                     <td className="mono num">
                       {money(b.total_amount)}
                       {b.status === "cancelled" && b.cancellation_fee != null && (
-                        <span className="table-sub"> fee {money(b.cancellation_fee)}</span>
+                        <span className="table-sub">{t(" fee {a}", { a: money(b.cancellation_fee) })}</span>
                       )}
                     </td>
                     <td>
                       <span className={`pill ${b.status === "cancelled" ? "pill-red" : "pill-green"}`}>
-                        {b.status}
+                        {b.status === "cancelled" ? t("Cancelled") : t("Confirmed")}
                       </span>
                     </td>
                     <td>
                       {b.status !== "cancelled" &&
                         (b.checked_in_at ? (
-                          <span className="pill pill-boarded">boarded ✓</span>
+                          <span className="pill pill-boarded">{t("boarded ✓")}</span>
                         ) : (
                           <button
                             className="btn btn-ghost btn--small"
                             onClick={() => checkIn(b.pnr)}
                             disabled={busyCheck === b.pnr}
                           >
-                            {busyCheck === b.pnr ? "…" : "Check in"}
+                            {busyCheck === b.pnr ? "…" : t("Check in")}
                           </button>
                         ))}
                     </td>

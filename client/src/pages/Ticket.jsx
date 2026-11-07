@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { useParams, useLocation, Link } from "react-router-dom";
 import { api, money, fmtDuration, fmtDate } from "../api.js";
 import { bnCity } from "../bn.js";
+import { useLang } from "../lang.jsx";
 import { Stepper } from "../components/Header.jsx";
 
 function CancelModal({ ticket, onClose, onConfirm, busy, quote, quoteError, confirmError }) {
+  const { t } = useLang();
   useEffect(() => {
     function onKey(e) {
       if (e.key === "Escape") onClose();
@@ -22,7 +24,7 @@ function CancelModal({ ticket, onClose, onConfirm, busy, quote, quoteError, conf
         aria-labelledby="cancel-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 id="cancel-title">Cancel booking?</h2>
+        <h2 id="cancel-title">{t("Cancel booking?")}</h2>
         <p className="modal-sub muted">
           {bnCity(ticket.from_city)} → {bnCity(ticket.to_city)} ·{" "}
           <span className="mono">{fmtDate(ticket.travel_date)} {ticket.depart_time}</span> ·{" "}
@@ -34,25 +36,25 @@ function CancelModal({ ticket, onClose, onConfirm, busy, quote, quoteError, conf
 
         {quote && (
           <dl className="modal-charges">
-            <div><dt>You paid</dt><dd className="mono">{money(ticket.total_amount)}</dd></div>
-            <div><dt>Cancellation fee</dt><dd className="mono modal-fee">{money(quote.fee)}</dd></div>
+            <div><dt>{t("You paid")}</dt><dd className="mono">{money(ticket.total_amount)}</dd></div>
+            <div><dt>{t("Cancellation fee")}</dt><dd className="mono modal-fee">{money(quote.fee)}</dd></div>
             <div className="modal-charges-total">
-              <dt>Goes back to your card</dt>
+              <dt>{t("Goes back to your card")}</dt>
               <dd className="mono stub-total">{money(quote.refund)}</dd>
             </div>
           </dl>
         )}
         <p className="hint-line">
-          Fee is 10% of the ticket value, minimum ৳50. The refund returns to the same
-          card in 5–7 working days. {ticket.seats.length > 1 ? "All seats" : "The seat"} go{ticket.seats.length > 1 ? "" : "es"} back on sale immediately.
+          {t("Fee is 10% of the ticket value, minimum ৳50. The refund returns to the same card in 5–7 working days.")}{" "}
+          {t(ticket.seats.length > 1 ? "All seats go back on sale immediately." : "The seat goes back on sale immediately.")}
         </p>
 
         <div className="modal-actions">
           <button className="btn btn-ghost" onClick={onClose} disabled={busy}>
-            Keep my ticket
+            {t("Keep my ticket")}
           </button>
           <button className="btn btn-amber btn-cancel" onClick={onConfirm} disabled={busy || !quote}>
-            {busy ? "Cancelling…" : quote ? `Cancel booking · lose ${money(quote.fee)}` : "Cancel booking"}
+            {busy ? t("Cancelling…") : quote ? t("Cancel booking · lose {fee}", { fee: money(quote.fee) }) : t("Cancel booking")}
           </button>
         </div>
       </div>
@@ -61,6 +63,7 @@ function CancelModal({ ticket, onClose, onConfirm, busy, quote, quoteError, conf
 }
 
 export function Ticket() {
+  const { t } = useLang();
   const { pnr } = useParams();
   const { state } = useLocation();
   const [ticket, setTicket] = useState(state?.ticket || null);
@@ -93,13 +96,13 @@ export function Ticket() {
       <div className="error-page">
         <p className="error-banner" role="alert">{error}</p>
         <div className="error-page-actions">
-          <Link to="/" className="btn btn-amber">Back to home</Link>
-          <Link to="/my-trips" className="btn btn-ghost">Look up by email</Link>
+          <Link to="/" className="btn btn-amber">{t("Back to home")}</Link>
+          <Link to="/my-trips" className="btn btn-ghost">{t("Look up by email")}</Link>
         </div>
       </div>
     </div>
   );
-  if (!ticket) return <p className="muted">Loading ticket…</p>;
+  if (!ticket) return <p className="muted">{t("Loading ticket…")}</p>;
 
   const cancelled = ticket.status === "cancelled";
   const [depH, depM] = ticket.depart_time.split(":").map(Number);
@@ -123,17 +126,17 @@ export function Ticket() {
     <div className="step-shell">
       <Stepper step={4} />
       <header className="step-head">
-        <h1>{cancelled ? "Booking cancelled" : "You're booked!"}</h1>
-        {!cancelled && <p className="step-sub muted">Show this ticket to the staff before boarding.</p>}
+        <h1>{cancelled ? t("Booking cancelled") : t("You're booked!")}</h1>
+        {!cancelled && <p className="step-sub muted">{t("Show this ticket to the staff before boarding.")}</p>}
       </header>
 
       <div className="ticket-card" id="ticket-print">
         <div className="ticket-main">
           <div className="ticket-pnr">
-            <span className="ticket-pnr-label">Booking code</span>
+            <span className="ticket-pnr-label">{t("Booking code")}</span>
             <span className="ticket-pnr-value mono">{ticket.pnr}</span>
             <span className={`ticket-status ${cancelled ? "is-cancelled" : ""}`}>
-              {cancelled ? "Cancelled" : "Confirmed"}
+              {cancelled ? t("Cancelled") : t("Confirmed")}
             </span>
           </div>
           <p className="ticket-route">
@@ -153,7 +156,7 @@ export function Ticket() {
             </div>
           </div>
           <p className="ticket-meta">
-            {fmtDate(ticket.travel_date)} · {ticket.bus.operator} — {ticket.bus.name} · {ticket.bus.type}
+            {fmtDate(ticket.travel_date)} · {ticket.bus.operator} — {ticket.bus.name} · {t(ticket.bus.type)}
           </p>
         </div>
 
@@ -161,15 +164,15 @@ export function Ticket() {
 
         <div className="ticket-stub">
           <dl className="stub-list">
-            <div><dt>Seats</dt><dd className="mono">{ticket.seats.join(" ")}</dd></div>
-            <div><dt>Date</dt><dd className="mono">{fmtDate(ticket.travel_date)}</dd></div>
+            <div><dt>{t("Seats")}</dt><dd className="mono">{ticket.seats.join(" ")}</dd></div>
+            <div><dt>{t("Date")}</dt><dd className="mono">{fmtDate(ticket.travel_date)}</dd></div>
             {cancelled ? (
               <>
-                <div><dt>Cancellation fee</dt><dd className="mono">{ticket.cancellation_fee == null ? "—" : money(ticket.cancellation_fee)}</dd></div>
-                <div><dt>Refunded</dt><dd className="stub-total mono">{ticket.refund_amount == null ? "—" : money(ticket.refund_amount)}</dd></div>
+                <div><dt>{t("Cancellation fee")}</dt><dd className="mono">{ticket.cancellation_fee == null ? "—" : money(ticket.cancellation_fee)}</dd></div>
+                <div><dt>{t("Refunded")}</dt><dd className="stub-total mono">{ticket.refund_amount == null ? "—" : money(ticket.refund_amount)}</dd></div>
               </>
             ) : (
-              <div><dt>Paid</dt><dd className="stub-total mono">{money(ticket.total_amount)}</dd></div>
+              <div><dt>{t("Paid")}</dt><dd className="stub-total mono">{money(ticket.total_amount)}</dd></div>
             )}
           </dl>
         </div>
@@ -183,13 +186,13 @@ export function Ticket() {
 
       {!cancelled && (
         <div className="ticket-actions no-print">
-          <button className="btn btn-amber" onClick={() => window.print()}>Print ticket</button>
-          <button className="btn btn-ghost" onClick={() => setModalOpen(true)} disabled={busy}>Cancel booking</button>
+          <button className="btn btn-amber" onClick={() => window.print()}>{t("Print ticket")}</button>
+          <button className="btn btn-ghost" onClick={() => setModalOpen(true)} disabled={busy}>{t("Cancel booking")}</button>
         </div>
       )}
       {cancelled && (
         <div className="ticket-actions no-print">
-          <button className="btn btn-amber" onClick={() => window.print()}>Print receipt</button>
+          <button className="btn btn-amber" onClick={() => window.print()}>{t("Print receipt")}</button>
         </div>
       )}
       {modalOpen && (
@@ -204,8 +207,8 @@ export function Ticket() {
         />
       )}
       <div className="ticket-actions no-print">
-        <Link className="btn btn-ghost" to="/">Book another ride</Link>
-        <Link className="btn btn-ghost" to="/my-trips">My trips</Link>
+        <Link className="btn btn-ghost" to="/">{t("Book another ride")}</Link>
+        <Link className="btn btn-ghost" to="/my-trips">{t("My trips")}</Link>
       </div>
     </div>
   );

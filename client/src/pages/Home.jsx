@@ -2,18 +2,20 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, money, fmtDuration, fmtDate } from "../api.js";
 import { bnCity } from "../bn.js";
+import { useLang } from "../lang.jsx";
 
 function DayPicker({ date, onChange }) {
+  const { t } = useLang();
   const options = [];
   const today = new Date();
   for (let i = 0; i < 14; i++) {
     const d = new Date(today);
     d.setDate(d.getDate() + i);
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    options.push({ iso, label: i === 0 ? "Today" : i === 1 ? "Tomorrow" : fmtDate(iso) });
+    options.push({ iso, label: i === 0 ? t("Today") : i === 1 ? t("Tomorrow") : fmtDate(iso) });
   }
   return (
-    <select className="field-select" value={date} onChange={(e) => onChange(e.target.value)} aria-label="Travel date">
+    <select className="field-select" value={date} onChange={(e) => onChange(e.target.value)} aria-label={t("Travel date")}>
       {options.map((o) => (
         <option key={o.iso} value={o.iso}>{o.label}</option>
       ))}
@@ -22,6 +24,7 @@ function DayPicker({ date, onChange }) {
 }
 
 export function TripRow({ trip, date }) {
+  const { t } = useLang();
   const [depH, depM] = trip.depart_time.split(":").map(Number);
   const arr = new Date();
   arr.setHours(depH, depM + trip.duration_min, 0, 0);
@@ -42,7 +45,7 @@ export function TripRow({ trip, date }) {
         </div>
       </div>
       <div className="trip-meet">
-        <span className="chip chip-type">{trip.type}</span>
+        <span className="chip chip-type">{t(trip.type)}</span>
         <span className="trip-operator">
           <strong>{trip.operator}</strong> {trip.bus_name}
         </span>
@@ -52,7 +55,7 @@ export function TripRow({ trip, date }) {
           trip.available_seats > 10 ? "trip-seats trip-seats--ok" :
           trip.available_seats > 0 ? "trip-seats trip-seats--low" : "trip-seats trip-seats--out"
         }>
-          {trip.available_seats > 0 ? `${trip.available_seats} of ${trip.total_seats} seats free` : "Sold out"}
+          {trip.available_seats > 0 ? t("{n} of {m} seats free", { n: trip.available_seats, m: trip.total_seats }) : t("Sold out")}
         </span>
         <span className="trip-price">{money(trip.price)}</span>
         <Link
@@ -60,7 +63,7 @@ export function TripRow({ trip, date }) {
           className="btn btn-amber"
           aria-disabled={trip.available_seats === 0}
         >
-          {trip.available_seats > 0 ? "Choose seats" : "Unavailable"}
+          {trip.available_seats > 0 ? t("Choose seats") : t("Unavailable")}
         </Link>
       </div>
     </article>
@@ -68,6 +71,7 @@ export function TripRow({ trip, date }) {
 }
 
 export function Home() {
+  const { t } = useLang();
   const [cities, setCities] = useState([]);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -106,7 +110,7 @@ export function Home() {
     e.preventDefault();
     if (!from || !to) return;
     if (from === to) {
-      setError("Pick two different cities.");
+      setError(t("Pick two different cities."));
       return;
     }
     setError("");
@@ -123,30 +127,30 @@ export function Home() {
       <section className="hero no-print">
         <h1>
           <span className="hero-bn">শহর থেকে শহর</span>
-          <span className="hero-en">Night coaches, window seats, all across Bangladesh</span>
+          <span className="hero-en">{t("Night coaches, window seats, all across Bangladesh")}</span>
         </h1>
       </section>
 
       <form className="search-bar no-print" onSubmit={search}>
         <label className="field">
-          <span className="field-label">From</span>
+          <span className="field-label">{t("From")}</span>
           <select className="field-select" value={from} onChange={(e) => setFrom(e.target.value)}>
             {cities.map((c) => <option key={c.id}>{c.name}</option>)}
           </select>
         </label>
-        <button type="button" className="swap" onClick={swap} title="Swap cities" aria-label="Swap cities">⇄</button>
+        <button type="button" className="swap" onClick={swap} title={t("Swap cities")} aria-label={t("Swap cities")}>⇄</button>
         <label className="field">
-          <span className="field-label">To</span>
+          <span className="field-label">{t("To")}</span>
           <select className="field-select" value={to} onChange={(e) => setTo(e.target.value)}>
             {cities.map((c) => <option key={c.id}>{c.name}</option>)}
           </select>
         </label>
         <label className="field field-date">
-          <span className="field-label">On</span>
+          <span className="field-label">{t("On")}</span>
           <DayPicker date={date} onChange={setDate} />
         </label>
         <button type="submit" className="btn btn-amber btn-big" disabled={loading || !from || !to}>
-          {loading ? "Looking…" : "Find buses"}
+          {loading ? t("Looking…") : t("Find buses")}
         </button>
       </form>
       {error && <p className="error-banner">{error}</p>}
@@ -158,14 +162,16 @@ export function Home() {
             <span className="muted results-sub">{from} → {to} · {fmtDate(date)}</span>
           </h2>
           {trips.length === 0
-            ? <p className="empty-line">No buses run this route on {fmtDate(date)}. Try another day or city.</p>
-            : trips.map((t) => <TripRow key={t.id} trip={t} date={date} />)}
+            ? <p className="empty-line">{t("No buses run this route on {date}. Try another day or city.", { date: fmtDate(date) })}</p>
+            : trips.map((tr) => <TripRow key={tr.id} trip={tr} date={date} />)}
         </section>
       )}
 
       {!searched && (
         <p className="hint-line no-print">
-          Popular right now: {cities[0] && cities[1] ? <>{cities[0].name} ↔ {cities[1].name}</> : "…"}. Pick a route above.
+          {t("Popular right now: {pair}. Pick a route above.", {
+            pair: cities[0] && cities[1] ? `${cities[0].name} ↔ ${cities[1].name}` : "…",
+          })}
         </p>
       )}
     </>

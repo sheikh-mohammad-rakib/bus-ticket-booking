@@ -1,5 +1,11 @@
 const BASE = "/api";
 
+// Current UI language ("en" | "bn"), kept in sync by LangProvider.
+// money/fmtDate/fmtDuration read it so ৳ fares, dates and durations render
+// natively in either mode.
+let uiLang = "en";
+export const setUiLang = (l) => { uiLang = l === "bn" ? "bn" : "en"; };
+
 async function request(path, opts = {}) {
   const res = await fetch(BASE + path, {
     headers: { "Content-Type": "application/json" },
@@ -44,12 +50,19 @@ export const api = {
   adminRemoveTrip: (id) => request(`/admin/trips/${id}`, { method: "DELETE", body: JSON.stringify({}) }),
 };
 
-export const money = (n) =>
-  "৳" + new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(n);
+import { bnDigits, BN_DAYS, BN_MONTHS } from "./bn.js";
+
+export const money = (n) => {
+  const f = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(n);
+  return uiLang === "bn" ? "৳" + bnDigits(f) : "৳" + f;
+};
 
 export function fmtDuration(min) {
   const h = Math.floor(min / 60);
   const m = min % 60;
+  if (uiLang === "bn") {
+    return m === 0 ? `${bnDigits(h)}ঘ` : `${bnDigits(h)}ঘ ${bnDigits(m)}মি`;
+  }
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
@@ -59,5 +72,8 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 export function fmtDate(iso) {
   const [y, m, d] = iso.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
+  if (uiLang === "bn") {
+    return `${BN_DAYS[dt.getDay()]}, ${bnDigits(d)} ${BN_MONTHS[m - 1]}`;
+  }
   return `${DAYS[dt.getDay()]}, ${d} ${MONTHS[m - 1]}`;
 }

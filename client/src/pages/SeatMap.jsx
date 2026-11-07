@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom";
 import { api, money, fmtDuration, fmtDate } from "../api.js";
 import { bnCity } from "../bn.js";
+import { useLang } from "../lang.jsx";
 import { Stepper } from "../components/Header.jsx";
 
 const MAX_SEATS = 6;
 
 export function SeatMap() {
+  const { t } = useLang();
   const { tripId } = useParams();
   const [params] = useSearchParams();
   const date = params.get("date");
@@ -19,7 +21,7 @@ export function SeatMap() {
 
   useEffect(() => {
     if (!date) {
-      setError("No travel date chosen");
+      setError(t("No travel date chosen"));
       setLoading(false);
       return;
     }
@@ -29,12 +31,12 @@ export function SeatMap() {
       .finally(() => setLoading(false));
   }, [tripId, date]);
 
-  if (loading) return <p className="muted">Loading the bus…</p>;
+  if (loading) return <p className="muted">{t("Loading the bus…")}</p>;
   if (error) return (
     <div className="step-shell">
       <Stepper step={1} />
       <p className="error-banner">{error}</p>
-      <Link to="/" className="btn btn-ghost">Back to search</Link>
+      <Link to="/" className="btn btn-ghost">{t("Back to search")}</Link>
     </div>
   );
 
@@ -58,16 +60,16 @@ export function SeatMap() {
       <header className="step-head">
         <h1>{bnCity(trip.from_city)} → {bnCity(trip.to_city)}</h1>
         <p className="step-sub muted">
-          {trip.from_city} → {trip.to_city} · {trip.operator} · {trip.bus_name} · {trip.type}
+          {trip.from_city} → {trip.to_city} · {trip.operator} · {trip.bus_name} · {t(trip.type)}
         </p>
       </header>
 
       <div className="seatmap-grid">
         <section className="seatmap-card">
           <div className="driver" aria-hidden="true">
-            <span>🚌</span> Front
+            <span>🚌</span> {t("Front")}
           </div>
-          <div className="seatmap" role="group" aria-label="Seat map">
+          <div className="seatmap" role="group" aria-label={t("Seat map")}>
             {layout.rowsWithSeats.map((row) => (
               <div className="seatmap-row" key={row.label}>
                 <span className="seatmap-rowlabel" aria-hidden="true">{row.label}</span>
@@ -85,7 +87,9 @@ export function SeatMap() {
                       onClick={() => toggle(seat)}
                       disabled={soldSet.has(seat)}
                       aria-pressed={selected.includes(seat)}
-                      aria-label={`Seat ${seat}${soldSet.has(seat) ? " (taken)" : ""}`}
+                      aria-label={soldSet.has(seat)
+                        ? t("Seat {seat} (taken)", { seat })
+                        : t("Seat {seat}", { seat })}
                     >
                       {seat.replace(row.label, "")}
                     </button>
@@ -95,26 +99,26 @@ export function SeatMap() {
             ))}
           </div>
           <div className="seat-legend no-print">
-            <span><i className="seat seat-avail" aria-hidden="true" /> Free</span>
-            <span><i className="seat seat-selected" aria-hidden="true" /> Yours</span>
-            <span><i className="seat seat-sold" aria-hidden="true" /> Taken</span>
+            <span><i className="seat seat-avail" aria-hidden="true" /> {t("Free")}</span>
+            <span><i className="seat seat-selected" aria-hidden="true" /> {t("Yours")}</span>
+            <span><i className="seat seat-sold" aria-hidden="true" /> {t("Taken")}</span>
           </div>
         </section>
 
         <aside className="seatmap-side">
           <div className="side-stub">
             <dl className="stub-list">
-              <div><dt>Date</dt><dd className="mono">{fmtDate(date)}</dd></div>
-              <div><dt>Departs</dt><dd className="mono">{trip.depart_time}</dd></div>
-              <div><dt>On board</dt><dd>{fmtDuration(trip.duration_min)}</dd></div>
+              <div><dt>{t("Date")}</dt><dd className="mono">{fmtDate(date)}</dd></div>
+              <div><dt>{t("Departs")}</dt><dd className="mono">{trip.depart_time}</dd></div>
+              <div><dt>{t("On board")}</dt><dd>{fmtDuration(trip.duration_min)}</dd></div>
             </dl>
             <dl className="stub-list">
-              <div><dt>Seats</dt><dd className="mono">{selected.length ? selected.join(" ") : "—"}</dd></div>
-              <div><dt>Fare each</dt><dd className="mono">{money(trip.price)}</dd></div>
-              <div><dt>Total</dt><dd className="stub-total mono">{money(total)}</dd></div>
+              <div><dt>{t("Seats")}</dt><dd className="mono">{selected.length ? selected.join(" ") : "—"}</dd></div>
+              <div><dt>{t("Fare each")}</dt><dd className="mono">{money(trip.price)}</dd></div>
+              <div><dt>{t("Total")}</dt><dd className="stub-total mono">{money(total)}</dd></div>
             </dl>
             {selected.length === MAX_SEATS && (
-              <p className="hint-line">Up to {MAX_SEATS} seats per booking.</p>
+              <p className="hint-line">{t("Up to {n} seats per booking.", { n: MAX_SEATS })}</p>
             )}
             <button
               className="btn btn-amber btn-block"
@@ -123,9 +127,9 @@ export function SeatMap() {
                 navigate("/book", { state: { trip, date, seats: selected, price: trip.price } })
               }
             >
-              Continue to passengers
+              {t("Continue to passengers")}
             </button>
-            <Link to="/" className="btn btn-ghost btn-block no-print">Back to results</Link>
+            <Link to="/" className="btn btn-ghost btn-block no-print">{t("Back to results")}</Link>
           </div>
         </aside>
       </div>
